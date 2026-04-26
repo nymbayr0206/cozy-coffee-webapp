@@ -75,11 +75,17 @@ export interface ProductFormRequest {
   barcode?: string | null;
   default_code?: string | null;
   category?: string | null;
+  category_scope?: "pos" | "warehouse";
   description?: string | null;
   image_base64?: string | null;
   available_for_sale?: boolean;
   is_storable?: boolean;
   uom_id?: number | null;
+}
+
+export interface CategoryFormRequest {
+  name: string;
+  scope?: "pos" | "warehouse";
 }
 
 export interface ProductResponse {

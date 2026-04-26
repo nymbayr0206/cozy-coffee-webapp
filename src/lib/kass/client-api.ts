@@ -2,6 +2,7 @@ import type {
   CategoriesResponse,
   CloseSessionRequest,
   CloseSessionResponse,
+  CategoryFormRequest,
   CreateOrderRequest,
   CreateOrderResponse,
   KassApiErrorShape,
@@ -41,6 +42,7 @@ const errorMessages: Record<string, string> = {
   product_create_failed: "Бараа нэмэхэд алдаа гарлаа.",
   product_update_failed: "Бараа засахад алдаа гарлаа.",
   product_delete_failed: "Бараа хасахад алдаа гарлаа.",
+  category_create_failed: "Ангилал нэмэхэд алдаа гарлаа.",
   partner_not_found: "Харилцагч олдсонгүй.",
   stock_location_not_found: "Odoo агуулахын байршил олдсонгүй.",
   stock_receive_failed: "Барааны орлого авахад алдаа гарлаа.",
@@ -130,6 +132,17 @@ export function getProducts(scope: ProductScope = "pos") {
 
 export function getProductCategories() {
   return request<CategoriesResponse>("/categories");
+}
+
+export function getWarehouseCategories() {
+  return request<CategoriesResponse>("/categories?scope=warehouse");
+}
+
+export function createProductCategory(body: CategoryFormRequest) {
+  return request<{ category: CategoriesResponse["categories"][number] }>("/categories", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 export function getProductUoms() {

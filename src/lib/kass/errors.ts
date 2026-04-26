@@ -9,6 +9,7 @@ export type KassErrorCode =
   | "product_create_failed"
   | "product_update_failed"
   | "product_delete_failed"
+  | "category_create_failed"
   | "stock_location_not_found"
   | "stock_receive_failed"
   | "qpay_invoice_failed"

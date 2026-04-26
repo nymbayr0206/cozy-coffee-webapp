@@ -17,6 +17,7 @@ interface UpdateProductBody {
   barcode?: unknown;
   default_code?: unknown;
   category?: unknown;
+  category_scope?: unknown;
   description?: unknown;
   image_base64?: unknown;
   available_for_sale?: unknown;
@@ -45,6 +46,7 @@ export async function PATCH(request: Request, context: ProductParams) {
       barcode?: string | null;
       default_code?: string | null;
       category?: string | null;
+      category_scope?: "pos" | "warehouse";
       description?: string | null;
       image_base64?: string | null;
       available_for_sale?: boolean;
@@ -57,6 +59,9 @@ export async function PATCH(request: Request, context: ProductParams) {
     if (body.barcode !== undefined) input.barcode = typeof body.barcode === "string" ? body.barcode : null;
     if (body.default_code !== undefined) input.default_code = typeof body.default_code === "string" ? body.default_code : null;
     if (body.category !== undefined) input.category = typeof body.category === "string" ? body.category : null;
+    if (body.category_scope !== undefined) {
+      input.category_scope = body.category_scope === "warehouse" ? "warehouse" : "pos";
+    }
     if (body.description !== undefined) input.description = typeof body.description === "string" ? body.description : null;
     if (body.image_base64 !== undefined) input.image_base64 = typeof body.image_base64 === "string" ? body.image_base64 : null;
     if (body.available_for_sale !== undefined) {

@@ -130,6 +130,7 @@ interface ProductWriteInput {
   barcode?: string | null;
   default_code?: string | null;
   category?: string | null;
+  category_scope?: "pos" | "warehouse";
   description?: string | null;
   image_base64?: string | null;
   available_for_sale?: boolean;
@@ -721,7 +722,12 @@ async function productTemplateValues(
     values.description_sale = cleanOptionalText(input.description);
   }
   if (input.category !== undefined) {
-    if (fields.has("pos_categ_ids")) {
+    if (input.category_scope === "warehouse") {
+      if (fields.has("categ_id")) {
+        const categoryId = await findOrCreateCategory(config, uid, input.category);
+        if (categoryId) values.categ_id = categoryId;
+      }
+    } else if (fields.has("pos_categ_ids")) {
       const categoryId = await findOrCreatePosCategory(config, uid, input.category);
       values.pos_categ_ids = categoryId ? [[6, 0, [categoryId]]] : [[5, 0, 0]];
     } else if (fields.has("categ_id")) {
@@ -1073,6 +1079,77 @@ export async function fetchOdooProductCategories() {
   };
 }
 
+export async function fetchOdooWarehouseCategories() {
+  const config = getOdooConfig();
+  const uid = await authenticate(config);
+  const modules = await getModuleStates(config, uid);
+  assertModuleInstalled(modules, "product");
+  const categoryFields = await getFieldNames(config, uid, "product.category");
+  const fields = ["id", "name", "display_name", "complete_name", "parent_id"].filter((field) =>
+    categoryFields.has(field),
+  );
+  const records = await executeKw<OdooCategoryRecord[]>(
+    config,
+    uid,
+    "product.category",
+    "search_read",
+    [[]],
+    {
+      fields,
+      limit: 500,
+      order: categoryFields.has("complete_name") ? "complete_name asc" : "name asc",
+    },
+  );
+
+  return {
+    categories: records.map(normalizePosCategory),
+  };
+}
+
+export async function createOdooProductCategory(input: { name: string; scope?: "pos" | "warehouse" }) {
+  const name = cleanOptionalText(input.name);
+  if (!name) {
+    throw new KassServerError("validation_error", "Ангиллын нэр оруулна уу.", 400);
+  }
+
+  const config = getOdooConfig();
+  const uid = await authenticate(config);
+  const modules = await getModuleStates(config, uid);
+
+  try {
+    if (input.scope === "warehouse") {
+      assertModuleInstalled(modules, "product");
+      const categoryId = await findOrCreateCategory(config, uid, name);
+      if (!categoryId) throw new KassServerError("category_create_failed", "Ангилал үүссэнгүй.", 502);
+      const categoryFields = await getFieldNames(config, uid, "product.category");
+      const fields = ["id", "name", "display_name", "complete_name", "parent_id"].filter((field) =>
+        categoryFields.has(field),
+      );
+      const records = await executeKw<OdooCategoryRecord[]>(config, uid, "product.category", "read", [
+        [categoryId],
+        fields,
+      ]);
+      return normalizePosCategory(records[0]);
+    }
+
+    assertModuleInstalled(modules, "point_of_sale");
+    const categoryId = await findOrCreatePosCategory(config, uid, name);
+    if (!categoryId) throw new KassServerError("category_create_failed", "Ангилал үүссэнгүй.", 502);
+    const categoryFields = await getFieldNames(config, uid, "pos.category");
+    const fields = ["id", "name", "display_name", "complete_name", "parent_id"].filter((field) =>
+      categoryFields.has(field),
+    );
+    const records = await executeKw<OdooCategoryRecord[]>(config, uid, "pos.category", "read", [
+      [categoryId],
+      fields,
+    ]);
+    return normalizePosCategory(records[0]);
+  } catch (error) {
+    if (error instanceof KassServerError) throw error;
+    throw new KassServerError("category_create_failed", "Odoo дээр ангилал нэмэхэд алдаа гарлаа.", 502);
+  }
+}
+
 export async function fetchOdooProductUoms() {
   const config = getOdooConfig();
   const uid = await authenticate(config);
@@ -1148,6 +1225,7 @@ export async function createOdooProduct(input: {
   barcode?: string | null;
   default_code?: string | null;
   category?: string | null;
+  category_scope?: "pos" | "warehouse";
   description?: string | null;
   image_base64?: string | null;
   available_for_sale?: boolean;
@@ -1202,6 +1280,7 @@ export async function updateOdooProduct(
     barcode?: string | null;
     default_code?: string | null;
     category?: string | null;
+    category_scope?: "pos" | "warehouse";
     description?: string | null;
     image_base64?: string | null;
     available_for_sale?: boolean;

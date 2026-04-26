@@ -537,6 +537,16 @@ nextjs-portal {
   color: var(--red);
 }
 
+.form-note {
+  padding: 10px 12px;
+  color: var(--muted);
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .product-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
@@ -964,6 +974,15 @@ nextjs-portal {
 .form-error,
 .error-state {
   color: var(--red);
+}
+
+.warning-state {
+  min-height: auto;
+  place-items: start;
+  text-align: left;
+  color: var(--amber);
+  background: #fff7ed;
+  border-color: #fed7aa;
 }
 
 .inline-warning {

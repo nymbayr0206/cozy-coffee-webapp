@@ -30,6 +30,7 @@ interface CreateProductBody {
   barcode?: unknown;
   default_code?: unknown;
   category?: unknown;
+  category_scope?: unknown;
   description?: unknown;
   image_base64?: unknown;
   available_for_sale?: unknown;
@@ -45,6 +46,7 @@ export async function POST(request: Request) {
     const barcode = typeof body.barcode === "string" ? body.barcode : null;
     const defaultCode = typeof body.default_code === "string" ? body.default_code : null;
     const category = typeof body.category === "string" ? body.category : null;
+    const categoryScope = body.category_scope === "warehouse" ? "warehouse" : body.category_scope === "pos" ? "pos" : undefined;
     const description = typeof body.description === "string" ? body.description : null;
     const imageBase64 = typeof body.image_base64 === "string" ? body.image_base64 : null;
     const availableForSale =
@@ -60,6 +62,7 @@ export async function POST(request: Request) {
       barcode,
       default_code: defaultCode,
       category,
+      category_scope: categoryScope,
       description,
       image_base64: imageBase64,
       available_for_sale: availableForSale,
