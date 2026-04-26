@@ -22,6 +22,7 @@ import {
   createKassProduct,
   createProductCategory,
   deleteKassProduct,
+  deleteProductCategory,
   formatMoney,
   formatUnitName,
   getPartners,
@@ -33,6 +34,8 @@ import {
   updateKassProduct,
 } from "@/lib/kass/client-api";
 import type { KassCategory, KassPartner, KassProduct, KassUom, ProductFormRequest } from "@/lib/kass/client-types";
+
+type WarehouseView = "stock" | "categories";
 
 const emptyStockForm = {
   quantity: "1",
@@ -95,6 +98,7 @@ export default function WarehousePage() {
   const [categories, setCategories] = useState<KassCategory[]>([]);
   const [uoms, setUoms] = useState<KassUom[]>([]);
   const [partners, setPartners] = useState<KassPartner[]>([]);
+  const [activeView, setActiveView] = useState<WarehouseView>("stock");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
@@ -114,6 +118,7 @@ export default function WarehousePage() {
   const [productSaving, setProductSaving] = useState(false);
   const [productFormError, setProductFormError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deletingCategoryId, setDeletingCategoryId] = useState<number | null>(null);
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const [categoryForm, setCategoryForm] = useState(emptyCategoryForm);
   const [categorySaving, setCategorySaving] = useState(false);
@@ -227,6 +232,36 @@ export default function WarehousePage() {
     );
   }, [query, stockProducts]);
 
+  const categoryProductCounts = useMemo(() => {
+    const nextCounts = new Map<number, number>();
+
+    categories.forEach((category) => {
+      const names = new Set(
+        [category.display_name, category.name]
+          .filter(Boolean)
+          .map((name) => name.trim().toLowerCase()),
+      );
+      const count = stockProducts.filter((product) => {
+        const productCategory = product.category?.trim().toLowerCase();
+        return Boolean(productCategory && names.has(productCategory));
+      }).length;
+      nextCounts.set(category.id, count);
+    });
+
+    return nextCounts;
+  }, [categories, stockProducts]);
+
+  const filteredCategories = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return categories;
+
+    return categories.filter((category) =>
+      `${category.display_name} ${category.name} ${category.parent_name ?? ""}`
+        .toLowerCase()
+        .includes(normalizedQuery),
+    );
+  }, [categories, query]);
+
   const summary = useMemo(
     () => ({
       totalItems: stockProducts.length,
@@ -236,6 +271,7 @@ export default function WarehousePage() {
     [stockProducts],
   );
 
+  const activeResultCount = activeView === "categories" ? filteredCategories.length : filtered.length;
   const activeStockUnitName = stockProduct ? formatUnitName(stockProduct.uom_name) : "нэгж";
 
   function openStockModal(product: KassProduct) {
@@ -336,6 +372,30 @@ export default function WarehousePage() {
       setCategoryFormError(getReadableError(saveError));
     } finally {
       setCategorySaving(false);
+    }
+  }
+
+  async function handleCategoryDelete(category: KassCategory) {
+    const productCount = Number(categoryProductCounts.get(category.id) ?? 0);
+    if (productCount > 0) {
+      setCategoryError("Энэ ангилалд агуулахын бараа оноогдсон байна. Эхлээд тухайн бараануудын ангиллыг солино уу.");
+      return;
+    }
+
+    const ok = window.confirm(`${category.display_name} ангиллыг устгах уу?`);
+    if (!ok) return;
+
+    setDeletingCategoryId(category.id);
+    setCategoryError(null);
+
+    try {
+      await deleteProductCategory(category.id, "warehouse");
+      setCategories((current) => current.filter((item) => item.id !== category.id));
+      await loadCategories();
+    } catch (deleteError) {
+      setCategoryError(getReadableError(deleteError));
+    } finally {
+      setDeletingCategoryId(null);
     }
   }
 
@@ -462,8 +522,8 @@ export default function WarehousePage() {
           <div>
             <p className="eyebrow">Агуулах</p>
             <div className="heading-line">
-              <h2>Үлдэгдэл ба орлого</h2>
-              {!loading ? <span className="soft-pill">{filtered.length} илэрц</span> : null}
+              <h2>{activeView === "categories" ? "Агуулахын ангилал" : "Үлдэгдэл ба орлого"}</h2>
+              {!loading && !categoriesLoading ? <span className="soft-pill">{activeResultCount} илэрц</span> : null}
             </div>
           </div>
           <div className="toolbar-actions">
@@ -485,6 +545,33 @@ export default function WarehousePage() {
               <span>{loading ? "Уншиж байна" : "Шинэчлэх"}</span>
             </button>
           </div>
+        </div>
+
+        <div className="filter-tabs warehouse-view-tabs" role="tablist" aria-label="Агуулахын харагдац">
+          <button
+            className={activeView === "stock" ? "filter-tab active" : "filter-tab"}
+            type="button"
+            role="tab"
+            aria-selected={activeView === "stock"}
+            onClick={() => setActiveView("stock")}
+            data-testid="warehouse-stock-tab"
+          >
+            <Warehouse size={16} aria-hidden="true" />
+            <span>Агуулахын бараа</span>
+            <strong>{stockProducts.length}</strong>
+          </button>
+          <button
+            className={activeView === "categories" ? "filter-tab active" : "filter-tab"}
+            type="button"
+            role="tab"
+            aria-selected={activeView === "categories"}
+            onClick={() => setActiveView("categories")}
+            data-testid="warehouse-category-tab"
+          >
+            <Tags size={16} aria-hidden="true" />
+            <span>Ангилал</span>
+            <strong>{categories.length}</strong>
+          </button>
         </div>
 
         <div className="report-kpi-grid warehouse-kpi-grid">
@@ -509,7 +596,7 @@ export default function WarehousePage() {
           <Search size={18} aria-hidden="true" />
           <input
             type="search"
-            placeholder="Нэр, баркод, ангиллаар хайх"
+            placeholder={activeView === "categories" ? "Ангиллын нэрээр хайх" : "Нэр, баркод, ангиллаар хайх"}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
@@ -529,161 +616,269 @@ export default function WarehousePage() {
           </div>
         ) : null}
 
-        <div className="warehouse-card-list">
-          {loading ? (
-            Array.from({ length: 5 }).map((_, index) => <div className="row-skeleton" key={index} />)
-          ) : filtered.length > 0 ? (
-            filtered.map((product) => {
-              const src = imageSource(product.image_base64);
-              const unitName = formatUnitName(product.uom_name);
-
-              return (
-                <article className="warehouse-card" key={product.id}>
-                  {src ? (
-                    <img className="product-thumb" src={src} alt={product.name} />
-                  ) : (
-                    <span className="product-thumb placeholder" aria-hidden="true">
-                      <Package size={18} />
-                    </span>
-                  )}
-                  <div className="warehouse-card-main">
-                    <strong>{product.name}</strong>
-                    <span>{product.category || "Ангилалгүй"}</span>
-                    <div className="warehouse-card-meta">
-                      <span>Үлдэгдэл: {stockQuantityText(product)} {unitName}</span>
-                      <span>Нэгж өртөг: {formatMoney(product.cost_price ?? 0)}</span>
-                    </div>
-                  </div>
-                  <div className="warehouse-card-actions">
-                    <button
-                      className="primary-button compact-button"
-                      type="button"
-                      onClick={() => openStockModal(product)}
-                      data-testid={`warehouse-mobile-stock-in-${product.id}`}
-                    >
-                      <PackagePlus size={16} aria-hidden="true" />
-                      <span>Орлого</span>
-                    </button>
-                    <button
-                      className="secondary-button compact-button"
-                      type="button"
-                      onClick={() => openEditProductModal(product)}
-                      data-testid={`warehouse-mobile-edit-${product.id}`}
-                    >
-                      <Edit3 size={16} aria-hidden="true" />
-                      <span>Засах</span>
-                    </button>
-                    <button
-                      className="danger-button compact-button"
-                      type="button"
-                      onClick={() => handleArchive(product)}
-                      disabled={deletingId === product.id}
-                      data-testid={`warehouse-mobile-delete-${product.id}`}
-                    >
-                      <Trash2 size={16} aria-hidden="true" />
-                      <span>Хасах</span>
-                    </button>
-                  </div>
-                </article>
-              );
-            })
-          ) : (
-            <div className="state-box">Агуулахын бараа олдсонгүй.</div>
-          )}
-        </div>
-
-        <div className="table-wrap warehouse-table-wrap">
-          <table className="data-table product-table">
-            <thead>
-              <tr>
-                <th>Зураг</th>
-                <th>Бараа</th>
-                <th>Ангилал</th>
-                <th>Баркод</th>
-                <th>Үлдэгдэл</th>
-                <th>Нэгж</th>
-                <th>Нэгж өртөг</th>
-                <th>Үйлдэл</th>
-              </tr>
-            </thead>
-            <tbody>
+        {activeView === "stock" ? (
+          <>
+            <div className="warehouse-card-list">
               {loading ? (
-                Array.from({ length: 6 }).map((_, index) => (
-                  <tr key={index}>
-                    <td colSpan={8}>
-                      <div className="row-skeleton" />
-                    </td>
-                  </tr>
-                ))
+                Array.from({ length: 5 }).map((_, index) => <div className="row-skeleton" key={index} />)
               ) : filtered.length > 0 ? (
                 filtered.map((product) => {
                   const src = imageSource(product.image_base64);
+                  const unitName = formatUnitName(product.uom_name);
 
                   return (
-                    <tr key={product.id}>
-                      <td>
-                        {src ? (
-                          <img className="product-thumb" src={src} alt={product.name} />
-                        ) : (
-                          <span className="product-thumb placeholder" aria-hidden="true">
-                            <Package size={18} />
-                          </span>
-                        )}
-                      </td>
-                      <td>
+                    <article className="warehouse-card" key={product.id}>
+                      {src ? (
+                        <img className="product-thumb" src={src} alt={product.name} />
+                      ) : (
+                        <span className="product-thumb placeholder" aria-hidden="true">
+                          <Package size={18} />
+                        </span>
+                      )}
+                      <div className="warehouse-card-main">
                         <strong>{product.name}</strong>
-                        {isLowStock(product) ? <small className="table-subtext danger-text">Үлдэгдэл 0 байна</small> : null}
-                      </td>
-                      <td>{product.category || "Ангилалгүй"}</td>
-                      <td>{product.barcode || "Баркодгүй"}</td>
-                      <td>
-                        <strong>{stockQuantityText(product)}</strong>
-                      </td>
-                      <td>{formatUnitName(product.uom_name)}</td>
-                      <td>{formatMoney(product.cost_price ?? 0)}</td>
-                      <td>
-                        <div className="table-actions warehouse-actions">
-                          <button
-                            className="primary-button compact-button"
-                            type="button"
-                            onClick={() => openStockModal(product)}
-                            data-testid={`warehouse-stock-in-${product.id}`}
-                          >
-                            <PackagePlus size={16} aria-hidden="true" />
-                            <span>Орлого</span>
-                          </button>
-                          <button
-                            className="icon-button"
-                            type="button"
-                            onClick={() => openEditProductModal(product)}
-                            aria-label="Засах"
-                            data-testid={`warehouse-edit-${product.id}`}
-                          >
-                            <Edit3 size={16} aria-hidden="true" />
-                          </button>
-                          <button
-                            className="icon-button danger"
-                            type="button"
-                            onClick={() => handleArchive(product)}
-                            disabled={deletingId === product.id}
-                            aria-label="Хасах"
-                            data-testid={`warehouse-delete-${product.id}`}
-                          >
-                            <Trash2 size={16} aria-hidden="true" />
-                          </button>
+                        <span>{product.category || "Ангилалгүй"}</span>
+                        <div className="warehouse-card-meta">
+                          <span>Үлдэгдэл: {stockQuantityText(product)} {unitName}</span>
+                          <span>Нэгж өртөг: {formatMoney(product.cost_price ?? 0)}</span>
                         </div>
-                      </td>
-                    </tr>
+                      </div>
+                      <div className="warehouse-card-actions">
+                        <button
+                          className="primary-button compact-button"
+                          type="button"
+                          onClick={() => openStockModal(product)}
+                          data-testid={`warehouse-mobile-stock-in-${product.id}`}
+                        >
+                          <PackagePlus size={16} aria-hidden="true" />
+                          <span>Орлого</span>
+                        </button>
+                        <button
+                          className="secondary-button compact-button"
+                          type="button"
+                          onClick={() => openEditProductModal(product)}
+                          data-testid={`warehouse-mobile-edit-${product.id}`}
+                        >
+                          <Edit3 size={16} aria-hidden="true" />
+                          <span>Засах</span>
+                        </button>
+                        <button
+                          className="danger-button compact-button"
+                          type="button"
+                          onClick={() => handleArchive(product)}
+                          disabled={deletingId === product.id}
+                          data-testid={`warehouse-mobile-delete-${product.id}`}
+                        >
+                          <Trash2 size={16} aria-hidden="true" />
+                          <span>Хасах</span>
+                        </button>
+                      </div>
+                    </article>
                   );
                 })
               ) : (
-                <tr>
-                  <td colSpan={8}>Агуулахын бараа олдсонгүй.</td>
-                </tr>
+                <div className="state-box">Агуулахын бараа олдсонгүй.</div>
               )}
-            </tbody>
-          </table>
-        </div>
+            </div>
+
+            <div className="table-wrap warehouse-table-wrap">
+              <table className="data-table product-table">
+                <thead>
+                  <tr>
+                    <th>Зураг</th>
+                    <th>Бараа</th>
+                    <th>Ангилал</th>
+                    <th>Баркод</th>
+                    <th>Үлдэгдэл</th>
+                    <th>Нэгж</th>
+                    <th>Нэгж өртөг</th>
+                    <th>Үйлдэл</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    Array.from({ length: 6 }).map((_, index) => (
+                      <tr key={index}>
+                        <td colSpan={8}>
+                          <div className="row-skeleton" />
+                        </td>
+                      </tr>
+                    ))
+                  ) : filtered.length > 0 ? (
+                    filtered.map((product) => {
+                      const src = imageSource(product.image_base64);
+
+                      return (
+                        <tr key={product.id}>
+                          <td>
+                            {src ? (
+                              <img className="product-thumb" src={src} alt={product.name} />
+                            ) : (
+                              <span className="product-thumb placeholder" aria-hidden="true">
+                                <Package size={18} />
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <strong>{product.name}</strong>
+                            {isLowStock(product) ? <small className="table-subtext danger-text">Үлдэгдэл 0 байна</small> : null}
+                          </td>
+                          <td>{product.category || "Ангилалгүй"}</td>
+                          <td>{product.barcode || "Баркодгүй"}</td>
+                          <td>
+                            <strong>{stockQuantityText(product)}</strong>
+                          </td>
+                          <td>{formatUnitName(product.uom_name)}</td>
+                          <td>{formatMoney(product.cost_price ?? 0)}</td>
+                          <td>
+                            <div className="table-actions warehouse-actions">
+                              <button
+                                className="primary-button compact-button"
+                                type="button"
+                                onClick={() => openStockModal(product)}
+                                data-testid={`warehouse-stock-in-${product.id}`}
+                              >
+                                <PackagePlus size={16} aria-hidden="true" />
+                                <span>Орлого</span>
+                              </button>
+                              <button
+                                className="icon-button"
+                                type="button"
+                                onClick={() => openEditProductModal(product)}
+                                aria-label="Засах"
+                                data-testid={`warehouse-edit-${product.id}`}
+                              >
+                                <Edit3 size={16} aria-hidden="true" />
+                              </button>
+                              <button
+                                className="icon-button danger"
+                                type="button"
+                                onClick={() => handleArchive(product)}
+                                disabled={deletingId === product.id}
+                                aria-label="Хасах"
+                                data-testid={`warehouse-delete-${product.id}`}
+                              >
+                                <Trash2 size={16} aria-hidden="true" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={8}>Агуулахын бараа олдсонгүй.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="category-card-list">
+              {categoriesLoading ? (
+                Array.from({ length: 5 }).map((_, index) => <div className="row-skeleton" key={index} />)
+              ) : filteredCategories.length > 0 ? (
+                filteredCategories.map((category) => {
+                  const productCount = Number(categoryProductCounts.get(category.id) ?? 0);
+                  const deleteDisabled = productCount > 0 || deletingCategoryId === category.id;
+
+                  return (
+                    <article className="category-card" key={category.id}>
+                      <div>
+                        <strong>{category.display_name}</strong>
+                        <span>ID: {category.id}</span>
+                      </div>
+                      <div>
+                        <small>Дээд ангилал</small>
+                        <span>{category.parent_name || "Дээд ангилалгүй"}</span>
+                      </div>
+                      <div>
+                        <small>Агуулахын бараа</small>
+                        <span>{productCount} бараа</span>
+                      </div>
+                      <button
+                        className="danger-button compact-button"
+                        type="button"
+                        onClick={() => handleCategoryDelete(category)}
+                        disabled={deleteDisabled}
+                        title={productCount > 0 ? "Энэ ангилалд бараа байгаа тул устгах боломжгүй" : "Ангилал устгах"}
+                        data-testid={`warehouse-category-mobile-delete-${category.id}`}
+                      >
+                        <Trash2 size={16} aria-hidden="true" />
+                        <span>Устгах</span>
+                      </button>
+                    </article>
+                  );
+                })
+              ) : (
+                <div className="state-box">Ангилал олдсонгүй.</div>
+              )}
+            </div>
+
+            <div className="table-wrap category-table-wrap">
+              <table className="data-table category-table">
+                <thead>
+                  <tr>
+                    <th>Ангилал</th>
+                    <th>Дээд ангилал</th>
+                    <th>Агуулахын бараа</th>
+                    <th>Үйлдэл</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categoriesLoading ? (
+                    Array.from({ length: 6 }).map((_, index) => (
+                      <tr key={index}>
+                        <td colSpan={4}>
+                          <div className="row-skeleton" />
+                        </td>
+                      </tr>
+                    ))
+                  ) : filteredCategories.length > 0 ? (
+                    filteredCategories.map((category) => {
+                      const productCount = Number(categoryProductCounts.get(category.id) ?? 0);
+                      const deleteDisabled = productCount > 0 || deletingCategoryId === category.id;
+
+                      return (
+                        <tr key={category.id}>
+                          <td>
+                            <strong>{category.display_name}</strong>
+                            <small className="table-subtext">ID: {category.id}</small>
+                          </td>
+                          <td>{category.parent_name || "Дээд ангилалгүй"}</td>
+                          <td>
+                            <span className={productCount > 0 ? "soft-pill" : "soft-pill muted-pill"}>
+                              {productCount} бараа
+                            </span>
+                          </td>
+                          <td>
+                            <button
+                              className="icon-button danger"
+                              type="button"
+                              onClick={() => handleCategoryDelete(category)}
+                              disabled={deleteDisabled}
+                              title={productCount > 0 ? "Энэ ангилалд бараа байгаа тул устгах боломжгүй" : "Ангилал устгах"}
+                              aria-label="Ангилал устгах"
+                              data-testid={`warehouse-category-delete-${category.id}`}
+                            >
+                              <Trash2 size={16} aria-hidden="true" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={4}>Ангилал олдсонгүй.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </section>
 
       {productModalOpen ? (

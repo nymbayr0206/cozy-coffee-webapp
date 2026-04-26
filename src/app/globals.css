@@ -266,6 +266,11 @@ nextjs-portal {
   font-weight: 760;
 }
 
+.muted-pill {
+  color: var(--muted);
+  background: #f8fafc;
+}
+
 .eyebrow {
   margin: 0 0 5px;
   color: var(--muted);
@@ -1847,6 +1852,11 @@ nextjs-portal {
   margin-bottom: 12px;
 }
 
+.warehouse-view-tabs {
+  grid-template-columns: repeat(2, minmax(180px, 260px));
+  margin-bottom: 12px;
+}
+
 .warehouse-kpi-grid .metric {
   min-height: 86px;
 }
@@ -1921,6 +1931,40 @@ nextjs-portal {
 .warehouse-actions {
   min-width: 188px;
   flex-wrap: nowrap;
+}
+
+.category-table {
+  min-width: 720px;
+}
+
+.category-card-list {
+  display: none;
+}
+
+.category-card {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.category-card > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.category-card strong {
+  overflow-wrap: anywhere;
+}
+
+.category-card small,
+.category-card span {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .strong-metric {
@@ -2543,6 +2587,7 @@ nextjs-portal {
 
   .product-filters,
   .product-view-tabs,
+  .warehouse-view-tabs,
   .payment-method-panel,
   .product-form-layout,
   .dashboard-payment-grid,
@@ -2575,7 +2620,16 @@ nextjs-portal {
     gap: 10px;
   }
 
+  .category-card-list {
+    display: grid;
+    gap: 10px;
+  }
+
   .warehouse-table-wrap {
+    display: none;
+  }
+
+  .category-table-wrap {
     display: none;
   }
 

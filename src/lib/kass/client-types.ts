@@ -100,6 +100,12 @@ export interface CategoryFormRequest {
   scope?: "pos" | "warehouse";
 }
 
+export interface CategoryDeleteResponse {
+  ok: boolean;
+  category_id: number;
+  deleted: boolean;
+}
+
 export interface ProductResponse {
   product: KassProduct;
 }

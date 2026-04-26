@@ -1161,6 +1161,100 @@ export async function createOdooProductCategory(input: { name: string; scope?: "
   }
 }
 
+export async function deleteOdooProductCategory(categoryId: number, scope: "pos" | "warehouse" = "warehouse") {
+  if (!Number.isInteger(categoryId) || categoryId <= 0) {
+    throw new KassServerError("validation_error", "category id буруу байна.", 400);
+  }
+
+  const config = getOdooConfig();
+  const uid = await authenticate(config);
+  const modules = await getModuleStates(config, uid);
+
+  try {
+    if (scope === "warehouse") {
+      assertModuleInstalled(modules, "product");
+
+      const existing = await executeKw<OdooCategoryRecord[]>(config, uid, "product.category", "read", [
+        [categoryId],
+        ["id", "name", "display_name", "complete_name", "parent_id"],
+      ]);
+
+      if (!existing[0]) {
+        throw new KassServerError("validation_error", "Ангилал олдсонгүй.", 404);
+      }
+
+      const productCount = await executeKw<number>(config, uid, "product.template", "search_count", [
+        [["categ_id", "=", categoryId]],
+      ]);
+      if (productCount > 0) {
+        throw new KassServerError(
+          "validation_error",
+          "Энэ ангилалд агуулахын бараа оноогдсон байна. Эхлээд бараануудын ангиллыг солих буюу хоослоно уу.",
+          409,
+        );
+      }
+
+      const childCount = await executeKw<number>(config, uid, "product.category", "search_count", [
+        [["parent_id", "=", categoryId]],
+      ]);
+      if (childCount > 0) {
+        throw new KassServerError(
+          "validation_error",
+          "Энэ ангилал дэд ангилалтай байна. Эхлээд дэд ангиллыг устгана уу.",
+          409,
+        );
+      }
+
+      const deleted = await executeKw<boolean>(config, uid, "product.category", "unlink", [[categoryId]]);
+      return { ok: Boolean(deleted), category_id: categoryId, deleted: Boolean(deleted) };
+    }
+
+    assertModuleInstalled(modules, "point_of_sale");
+    const categoryFields = await getFieldNames(config, uid, "pos.category");
+    const existing = await executeKw<OdooCategoryRecord[]>(config, uid, "pos.category", "read", [
+      [categoryId],
+      ["id", "name", "display_name", "parent_id"].filter((field) => categoryFields.has(field)),
+    ]);
+
+    if (!existing[0]) {
+      throw new KassServerError("validation_error", "Ангилал олдсонгүй.", 404);
+    }
+
+    const productFields = await getFieldNames(config, uid, "product.template");
+    if (productFields.has("pos_categ_ids")) {
+      const productCount = await executeKw<number>(config, uid, "product.template", "search_count", [
+        [["pos_categ_ids", "in", [categoryId]]],
+      ]);
+      if (productCount > 0) {
+        throw new KassServerError(
+          "validation_error",
+          "Энэ POS ангилалд кассын бүтээгдэхүүн оноогдсон байна. Эхлээд бүтээгдэхүүнүүдийн ангиллыг солино уу.",
+          409,
+        );
+      }
+    }
+
+    if (categoryFields.has("parent_id")) {
+      const childCount = await executeKw<number>(config, uid, "pos.category", "search_count", [
+        [["parent_id", "=", categoryId]],
+      ]);
+      if (childCount > 0) {
+        throw new KassServerError(
+          "validation_error",
+          "Энэ ангилал дэд ангилалтай байна. Эхлээд дэд ангиллыг устгана уу.",
+          409,
+        );
+      }
+    }
+
+    const deleted = await executeKw<boolean>(config, uid, "pos.category", "unlink", [[categoryId]]);
+    return { ok: Boolean(deleted), category_id: categoryId, deleted: Boolean(deleted) };
+  } catch (error) {
+    if (error instanceof KassServerError) throw error;
+    throw new KassServerError("category_delete_failed", "Odoo дээр ангилал устгахад алдаа гарлаа.", 502);
+  }
+}
+
 export async function fetchOdooProductUoms() {
   const config = getOdooConfig();
   const uid = await authenticate(config);
