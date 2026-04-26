@@ -1903,9 +1903,24 @@ nextjs-portal {
   gap: 2px;
 }
 
-.warehouse-card .primary-button {
+.warehouse-card-actions {
   grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.warehouse-card-actions .primary-button,
+.warehouse-card-actions .secondary-button,
+.warehouse-card-actions .danger-button {
   width: 100%;
+  min-height: 40px;
+  padding: 0 9px;
+}
+
+.warehouse-actions {
+  min-width: 188px;
+  flex-wrap: nowrap;
 }
 
 .strong-metric {

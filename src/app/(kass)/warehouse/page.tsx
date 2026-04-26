@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState, type ChangeEvent } from "react
 import {
   AlertTriangle,
   Boxes,
+  Edit3,
   ImageIcon,
   Package,
   PackagePlus,
@@ -12,6 +13,7 @@ import {
   Save,
   Search,
   Tags,
+  Trash2,
   Upload,
   Warehouse,
   X,
@@ -19,6 +21,7 @@ import {
 import {
   createKassProduct,
   createProductCategory,
+  deleteKassProduct,
   formatMoney,
   formatUnitName,
   getPartners,
@@ -27,6 +30,7 @@ import {
   getProductUoms,
   getWarehouseCategories,
   receiveKassProductStock,
+  updateKassProduct,
 } from "@/lib/kass/client-api";
 import type { KassCategory, KassPartner, KassProduct, KassUom, ProductFormRequest } from "@/lib/kass/client-types";
 
@@ -70,6 +74,18 @@ function stockQuantityText(product: KassProduct) {
   return Number(product.qty_available ?? 0).toLocaleString("mn-MN");
 }
 
+function productToWarehouseForm(product: KassProduct) {
+  return {
+    name: product.name,
+    sale_price: Number(product.sale_price ?? 0) > 0 ? String(product.sale_price) : "",
+    barcode: product.barcode ?? "",
+    category: product.category ?? "",
+    uom_id: product.uom_id ? String(product.uom_id) : "",
+    image_base64: product.image_base64 ?? null,
+    image_preview: imageSource(product.image_base64),
+  };
+}
+
 function isLowStock(product: KassProduct) {
   return Number(product.qty_available ?? 0) <= 0;
 }
@@ -93,9 +109,11 @@ export default function WarehousePage() {
   const [stockSaving, setStockSaving] = useState(false);
   const [stockError, setStockError] = useState<string | null>(null);
   const [productModalOpen, setProductModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<KassProduct | null>(null);
   const [productForm, setProductForm] = useState(emptyWarehouseProductForm);
   const [productSaving, setProductSaving] = useState(false);
   const [productFormError, setProductFormError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const [categoryForm, setCategoryForm] = useState(emptyCategoryForm);
   const [categorySaving, setCategorySaving] = useState(false);
@@ -231,9 +249,25 @@ export default function WarehousePage() {
   }
 
   function openProductModal() {
+    setEditingProduct(null);
     setProductForm(emptyWarehouseProductForm);
     setProductFormError(null);
     setProductModalOpen(true);
+  }
+
+  function openEditProductModal(product: KassProduct) {
+    setEditingProduct(product);
+    setProductForm(productToWarehouseForm(product));
+    setProductFormError(null);
+    setProductModalOpen(true);
+  }
+
+  function closeProductModal() {
+    if (productSaving) return;
+    setProductModalOpen(false);
+    setEditingProduct(null);
+    setProductForm(emptyWarehouseProductForm);
+    setProductFormError(null);
   }
 
   function openCategoryModal() {
@@ -311,7 +345,7 @@ export default function WarehousePage() {
     const salePrice = productForm.sale_price.trim() ? Number(productForm.sale_price) : 0;
 
     if (!name) {
-      setProductFormError("Барааны нэр оруулна уу.");
+      setProductFormError("Агуулахын барааны нэр оруулна уу.");
       return;
     }
 
@@ -337,15 +371,40 @@ export default function WarehousePage() {
         is_storable: true,
         uom_id: productForm.uom_id ? Number(productForm.uom_id) : null,
       };
-      const response = await createKassProduct(body);
-      setProducts((current) => [...current, response.product]);
+      const response = editingProduct
+        ? await updateKassProduct(editingProduct.id, body)
+        : await createKassProduct(body);
+      setProducts((current) => {
+        const exists = current.some((product) => product.id === response.product.id);
+        return exists
+          ? current.map((product) => (product.id === response.product.id ? response.product : product))
+          : [...current, response.product];
+      });
       setProductModalOpen(false);
+      setEditingProduct(null);
       setProductForm(emptyWarehouseProductForm);
       await loadProducts();
     } catch (saveError) {
       setProductFormError(getReadableError(saveError));
     } finally {
       setProductSaving(false);
+    }
+  }
+
+  async function handleArchive(product: KassProduct) {
+    const ok = window.confirm(`${product.name} агуулахын барааг хасах уу? Odoo дээр архивлагдана.`);
+    if (!ok) return;
+
+    setDeletingId(product.id);
+    setError(null);
+
+    try {
+      await deleteKassProduct(product.id);
+      await loadProducts();
+    } catch (deleteError) {
+      setError(getReadableError(deleteError));
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -412,7 +471,7 @@ export default function WarehousePage() {
               <Tags size={16} aria-hidden="true" />
               <span>Ангилал нэмэх</span>
             </button>
-            <button className="primary-button" type="button" onClick={openProductModal}>
+            <button className="primary-button" type="button" onClick={openProductModal} data-testid="warehouse-product-create-button">
               <Plus size={16} aria-hidden="true" />
               <span>Агуулахын бараа нэмэх</span>
             </button>
@@ -495,15 +554,36 @@ export default function WarehousePage() {
                       <span>Нэгж өртөг: {formatMoney(product.cost_price ?? 0)}</span>
                     </div>
                   </div>
-                  <button
-                    className="primary-button compact-button"
-                    type="button"
-                    onClick={() => openStockModal(product)}
-                    data-testid={`warehouse-mobile-stock-in-${product.id}`}
-                  >
-                    <PackagePlus size={16} aria-hidden="true" />
-                    <span>Орлого</span>
-                  </button>
+                  <div className="warehouse-card-actions">
+                    <button
+                      className="primary-button compact-button"
+                      type="button"
+                      onClick={() => openStockModal(product)}
+                      data-testid={`warehouse-mobile-stock-in-${product.id}`}
+                    >
+                      <PackagePlus size={16} aria-hidden="true" />
+                      <span>Орлого</span>
+                    </button>
+                    <button
+                      className="secondary-button compact-button"
+                      type="button"
+                      onClick={() => openEditProductModal(product)}
+                      data-testid={`warehouse-mobile-edit-${product.id}`}
+                    >
+                      <Edit3 size={16} aria-hidden="true" />
+                      <span>Засах</span>
+                    </button>
+                    <button
+                      className="danger-button compact-button"
+                      type="button"
+                      onClick={() => handleArchive(product)}
+                      disabled={deletingId === product.id}
+                      data-testid={`warehouse-mobile-delete-${product.id}`}
+                    >
+                      <Trash2 size={16} aria-hidden="true" />
+                      <span>Хасах</span>
+                    </button>
+                  </div>
                 </article>
               );
             })
@@ -562,15 +642,36 @@ export default function WarehousePage() {
                       <td>{formatUnitName(product.uom_name)}</td>
                       <td>{formatMoney(product.cost_price ?? 0)}</td>
                       <td>
-                        <button
-                          className="primary-button compact-button"
-                          type="button"
-                          onClick={() => openStockModal(product)}
-                          data-testid={`warehouse-stock-in-${product.id}`}
-                        >
-                          <PackagePlus size={16} aria-hidden="true" />
-                          <span>Орлого</span>
-                        </button>
+                        <div className="table-actions warehouse-actions">
+                          <button
+                            className="primary-button compact-button"
+                            type="button"
+                            onClick={() => openStockModal(product)}
+                            data-testid={`warehouse-stock-in-${product.id}`}
+                          >
+                            <PackagePlus size={16} aria-hidden="true" />
+                            <span>Орлого</span>
+                          </button>
+                          <button
+                            className="icon-button"
+                            type="button"
+                            onClick={() => openEditProductModal(product)}
+                            aria-label="Засах"
+                            data-testid={`warehouse-edit-${product.id}`}
+                          >
+                            <Edit3 size={16} aria-hidden="true" />
+                          </button>
+                          <button
+                            className="icon-button danger"
+                            type="button"
+                            onClick={() => handleArchive(product)}
+                            disabled={deletingId === product.id}
+                            aria-label="Хасах"
+                            data-testid={`warehouse-delete-${product.id}`}
+                          >
+                            <Trash2 size={16} aria-hidden="true" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -592,13 +693,13 @@ export default function WarehousePage() {
               className="icon-button modal-close"
               type="button"
               aria-label="Хаах"
-              onClick={() => setProductModalOpen(false)}
+              onClick={closeProductModal}
               disabled={productSaving}
             >
               <X size={18} aria-hidden="true" />
             </button>
             <p className="eyebrow">Агуулахын бараа</p>
-            <h2 id="warehouse-product-title">Бараа нэмэх</h2>
+            <h2 id="warehouse-product-title">{editingProduct ? "Агуулахын бараа засах" : "Агуулахын бараа нэмэх"}</h2>
 
             <div className="product-form-layout">
               <div className="image-upload-box">
@@ -703,10 +804,10 @@ export default function WarehousePage() {
             {productFormError ? <div className="form-error">{productFormError}</div> : null}
 
             <div className="modal-actions">
-              <button className="secondary-button" type="button" onClick={() => setProductModalOpen(false)} disabled={productSaving}>
+              <button className="secondary-button" type="button" onClick={closeProductModal} disabled={productSaving}>
                 Болих
               </button>
-              <button className="primary-button" type="submit" disabled={productSaving}>
+              <button className="primary-button" type="submit" disabled={productSaving} data-testid="warehouse-product-save-button">
                 <Save size={17} aria-hidden="true" />
                 <span>{productSaving ? "Хадгалж байна" : "Хадгалах"}</span>
               </button>
