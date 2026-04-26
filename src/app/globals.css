@@ -785,7 +785,6 @@ nextjs-portal {
 
 .cart-totals div,
 .receipt-total,
-.receipt-lines div,
 .change-box {
   display: flex;
   align-items: center;
@@ -1375,6 +1374,72 @@ nextjs-portal {
   padding: 12px 0;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
+}
+
+.receipt-line-heading,
+.receipt-line-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) 52px minmax(86px, auto) minmax(92px, auto);
+  align-items: start;
+  gap: 8px;
+}
+
+.receipt-line-heading {
+  padding-bottom: 5px;
+  border-bottom: 1px dashed var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.receipt-line-heading span:nth-child(n + 2),
+.receipt-line-quantity,
+.receipt-line-price,
+.receipt-line-total {
+  text-align: right;
+}
+
+.receipt-line-name {
+  min-width: 0;
+  color: var(--ink) !important;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.receipt-line-quantity {
+  color: var(--ink) !important;
+  font-weight: 800;
+}
+
+.receipt-line-price {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.receipt-line-total {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.receipt-wifi {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 5px 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  background: #fffaf0;
+  font-size: 13px;
+}
+
+.receipt-wifi span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.receipt-wifi strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .receipt-thanks {
@@ -2599,6 +2664,7 @@ nextjs-portal {
   .receipt-meta span,
   .receipt-lines span,
   .receipt-total span,
+  .receipt-wifi span,
   .receipt-thanks {
     color: #111827 !important;
   }
@@ -2625,7 +2691,26 @@ nextjs-portal {
     border-style: dashed;
   }
 
-  .receipt-lines div,
+  .receipt-line-heading,
+  .receipt-line-row {
+    grid-template-columns: minmax(0, 1fr) 9mm 17mm 19mm;
+    gap: 2mm;
+    font-size: 10px;
+  }
+
+  .receipt-line-heading {
+    padding-bottom: 3px;
+    font-size: 9px;
+  }
+
+  .receipt-line-price {
+    font-size: 9px;
+  }
+
+  .receipt-line-total {
+    font-size: 10px;
+  }
+
   .receipt-total {
     gap: 8px;
   }
@@ -2633,6 +2718,17 @@ nextjs-portal {
   .receipt-total strong {
     color: #111827 !important;
     font-size: 15px;
+  }
+
+  .receipt-wifi {
+    grid-template-columns: 15mm minmax(0, 1fr);
+    gap: 2px 5px;
+    padding: 5px 0;
+    border-width: 1px 0;
+    border-radius: 0;
+    border-color: #9ca3af;
+    background: transparent;
+    font-size: 10px;
   }
 
   .receipt-thanks {

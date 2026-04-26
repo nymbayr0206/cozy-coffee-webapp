@@ -17,6 +17,12 @@ function resolveReceiptNumber(receipt: ReceiptData) {
   return receipt.order.receipt_number ?? receipt.order.order?.receipt_number ?? "Байхгүй";
 }
 
+function formatQuantity(quantity: number) {
+  return Number.isInteger(quantity)
+    ? quantity.toLocaleString("mn-MN")
+    : quantity.toLocaleString("mn-MN", { maximumFractionDigits: 3 });
+}
+
 export function ReceiptModal({ receipt, onNewSale }: ReceiptModalProps) {
   if (!receipt) return null;
 
@@ -68,19 +74,32 @@ export function ReceiptModal({ receipt, onNewSale }: ReceiptModalProps) {
           </div>
 
           <div className="receipt-lines">
+            <header className="receipt-line-heading">
+              <span>Бараа</span>
+              <span>Тоо</span>
+              <span>Нэгж үнэ</span>
+              <span>Нийт</span>
+            </header>
             {receipt.lines.map((line) => (
-              <div key={line.product_id}>
-                <span>
-                  {line.name} x {line.quantity}
-                </span>
-                <strong>{formatMoney(line.price * line.quantity)}</strong>
-              </div>
+              <article className="receipt-line-row" key={line.product_id}>
+                <span className="receipt-line-name">{line.name}</span>
+                <span className="receipt-line-quantity">{formatQuantity(line.quantity)} ш</span>
+                <span className="receipt-line-price">{formatMoney(line.price)}</span>
+                <strong className="receipt-line-total">{formatMoney(line.price * line.quantity)}</strong>
+              </article>
             ))}
           </div>
 
           <div className="receipt-total">
             <span>Нийт</span>
             <strong>{formatMoney(receipt.total)}</strong>
+          </div>
+
+          <div className="receipt-wifi">
+            <span>WiFi</span>
+            <strong>cozy coffee</strong>
+            <span>Нууц үг</span>
+            <strong>taaldaaa</strong>
           </div>
 
           <p className="receipt-thanks">Баярлалаа. Дахин үйлчлүүлээрэй.</p>
