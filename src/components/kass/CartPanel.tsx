@@ -41,7 +41,7 @@ export function CartPanel({
           <div className="cart-empty">
             <ShoppingBasket size={34} aria-hidden="true" />
             <strong>Сагс хоосон байна</strong>
-            <p>Барааны карт дээр дарж захиалгад нэмнэ.</p>
+          <p>Бүтээгдэхүүний карт дээр дарж захиалгад нэмнэ.</p>
           </div>
         ) : null}
 

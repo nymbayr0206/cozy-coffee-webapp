@@ -102,6 +102,17 @@ interface OdooPartnerRecord {
   active?: boolean;
 }
 
+function normalizePartner(record: OdooPartnerRecord) {
+  return {
+    id: record.id,
+    name: record.display_name ?? record.name ?? `Partner ${record.id}`,
+    phone: record.phone || null,
+    email: record.email || null,
+    supplier_rank: Number(record.supplier_rank ?? 0),
+    customer_rank: Number(record.customer_rank ?? 0),
+  };
+}
+
 interface OdooSaleOrderRecord {
   id: number;
   name?: string;
@@ -1208,15 +1219,43 @@ export async function fetchOdooPartners() {
   );
 
   return {
-    partners: records.map((record) => ({
-      id: record.id,
-      name: record.display_name ?? record.name ?? `Partner ${record.id}`,
-      phone: record.phone || null,
-      email: record.email || null,
-      supplier_rank: Number(record.supplier_rank ?? 0),
-      customer_rank: Number(record.customer_rank ?? 0),
-    })),
+    partners: records.map(normalizePartner),
   };
+}
+
+export async function createOdooPartner(input: {
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  is_supplier?: boolean;
+  is_customer?: boolean;
+}) {
+  const name = cleanOptionalText(input.name);
+  if (!name) {
+    throw new KassServerError("validation_error", "Харилцагчийн нэр оруулна уу.", 400);
+  }
+
+  const config = getOdooConfig();
+  const uid = await authenticate(config);
+
+  try {
+    const partnerFields = await getFieldNames(config, uid, "res.partner");
+    const values: Record<string, unknown> = { name };
+    const phone = cleanOptionalText(input.phone);
+    const email = cleanOptionalText(input.email);
+
+    if (phone && partnerFields.has("phone")) values.phone = phone;
+    if (email && partnerFields.has("email")) values.email = email;
+    if (partnerFields.has("supplier_rank")) values.supplier_rank = input.is_supplier === false ? 0 : 1;
+    if (partnerFields.has("customer_rank")) values.customer_rank = input.is_customer ? 1 : 0;
+    if (partnerFields.has("active")) values.active = true;
+
+    const partnerId = await executeKw<number>(config, uid, "res.partner", "create", [values]);
+    return readPartner(config, uid, partnerId);
+  } catch (error) {
+    if (error instanceof KassServerError) throw error;
+    throw new KassServerError("partner_create_failed", "Odoo дээр харилцагч нэмэхэд алдаа гарлаа.", 502);
+  }
 }
 
 export async function createOdooProduct(input: {
@@ -1380,14 +1419,7 @@ async function readPartner(config: OdooConfig, uid: number, partnerId: number) {
     throw new KassServerError("partner_not_found", "Харилцагч олдсонгүй.", 404);
   }
 
-  return {
-    id: partner.id,
-    name: partner.display_name ?? partner.name ?? `Partner ${partner.id}`,
-    phone: partner.phone || null,
-    email: partner.email || null,
-    supplier_rank: Number(partner.supplier_rank ?? 0),
-    customer_rank: Number(partner.customer_rank ?? 0),
-  };
+  return normalizePartner(partner);
 }
 
 function escapeHtml(value: string) {

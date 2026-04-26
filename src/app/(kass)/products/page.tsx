@@ -14,11 +14,13 @@ import {
   RefreshCcw,
   Save,
   Search,
+  Tags,
   Trash2,
   Upload,
   X,
 } from "lucide-react";
 import {
+  createProductCategory,
   createKassProduct,
   deleteKassProduct,
   formatMoney,
@@ -79,6 +81,10 @@ const emptyStockForm = {
   unit_cost: "",
   partner_id: "",
   note: "",
+};
+
+const emptyCategoryForm = {
+  name: "",
 };
 
 function imageSource(base64?: string | null) {
@@ -160,6 +166,10 @@ export default function ProductsPage() {
   const [recipeLoading, setRecipeLoading] = useState(false);
   const [recipeError, setRecipeError] = useState<string | null>(null);
   const [recipeDirty, setRecipeDirty] = useState(false);
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [categoryForm, setCategoryForm] = useState(emptyCategoryForm);
+  const [categorySaving, setCategorySaving] = useState(false);
+  const [categoryFormError, setCategoryFormError] = useState<string | null>(null);
 
   async function loadProducts() {
     setLoading(true);
@@ -279,10 +289,10 @@ export default function ProductsPage() {
 
   const viewOptions = useMemo(
     () => [
-      { key: "all" as const, label: "Бүх бараа", count: counts.all, icon: Boxes },
+      { key: "all" as const, label: "Бүх бүтээгдэхүүн", count: counts.all, icon: Boxes },
       { key: "pos" as const, label: "Кассаар зарагдах", count: counts.pos, icon: Eye },
       { key: "hidden" as const, label: "Касс дээр харагдахгүй", count: counts.hidden, icon: EyeOff },
-      { key: "production" as const, label: "Үйлдвэрлэлийн бараа", count: counts.production, icon: Factory },
+      { key: "production" as const, label: "Үйлдвэрлэлийн бүтээгдэхүүн", count: counts.production, icon: Factory },
     ],
     [counts],
   );
@@ -317,6 +327,12 @@ export default function ProductsPage() {
     setRecipeDirty(false);
     setRecipeLoading(false);
     setModalOpen(true);
+  }
+
+  function openCategoryModal() {
+    setCategoryForm(emptyCategoryForm);
+    setCategoryFormError(null);
+    setCategoryModalOpen(true);
   }
 
   function openEditModal(product: KassProduct) {
@@ -405,6 +421,37 @@ export default function ProductsPage() {
     setForm((current) => ({ ...current, category: value }));
   }
 
+  async function handleCategorySubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = categoryForm.name.trim();
+
+    if (!name) {
+      setCategoryFormError("Ангиллын нэр оруулна уу.");
+      return;
+    }
+
+    setCategorySaving(true);
+    setCategoryFormError(null);
+
+    try {
+      const response = await createProductCategory({ name, scope: "pos" });
+      setCategories((current) => {
+        const exists = current.some((category) => category.id === response.category.id);
+        return exists
+          ? current
+          : [...current, response.category].sort((a, b) => a.display_name.localeCompare(b.display_name, "mn"));
+      });
+      setForm((current) => ({ ...current, category: response.category.display_name }));
+      setCustomCategoryMode(false);
+      setCategoryModalOpen(false);
+      setCategoryForm(emptyCategoryForm);
+    } catch (saveError) {
+      setCategoryFormError(getReadableError(saveError));
+    } finally {
+      setCategorySaving(false);
+    }
+  }
+
   function addRecipeLine() {
     setRecipeDirty(true);
     setRecipeLines((current) => [...current, makeRecipeLine()]);
@@ -466,7 +513,7 @@ export default function ProductsPage() {
     const salePrice = Number(form.sale_price);
 
     if (!name) {
-      setFormError("Барааны нэр оруулна уу.");
+      setFormError("Бүтээгдэхүүний нэр оруулна уу.");
       return;
     }
 
@@ -496,6 +543,7 @@ export default function ProductsPage() {
         barcode: form.barcode.trim() || null,
         default_code: form.default_code.trim() || null,
         category: form.category.trim() || null,
+        category_scope: "pos",
         description: form.description.trim() || null,
         image_base64: form.image_base64,
         available_for_sale: form.available_for_sale,
@@ -525,7 +573,7 @@ export default function ProductsPage() {
   }
 
   async function handleArchive(product: KassProduct) {
-    const ok = window.confirm(`${product.name} барааг борлуулалтаас хасах уу?`);
+    const ok = window.confirm(`${product.name} бүтээгдэхүүнийг борлуулалтаас хасах уу?`);
     if (!ok) return;
 
     setDeletingId(product.id);
@@ -567,7 +615,7 @@ export default function ProductsPage() {
 
   function openStockModal(product: KassProduct) {
     if (isProductionProduct(product)) {
-      setError("Үйлдвэрлэлийн бараанд шууд үлдэгдэл хөтлөхгүй. Орлого авахдаа агуулахын түүхий эд эсвэл агуулахын бараагаа сонгоно уу.");
+      setError("Үйлдвэрлэлийн бүтээгдэхүүнд шууд үлдэгдэл хөтлөхгүй. Орлого авахдаа агуулахын түүхий эд эсвэл агуулахын бараагаа сонгоно уу.");
       return;
     }
 
@@ -582,7 +630,7 @@ export default function ProductsPage() {
     if (!stockProduct) return;
 
     if (isProductionProduct(stockProduct)) {
-      setStockError("Энэ бараанд агуулахын үлдэгдэл хөтлөхгүй. Эхлээд барааны тохиргооноос агуулахын үлдэгдэл хөтлөхийг идэвхжүүлнэ үү.");
+      setStockError("Энэ бүтээгдэхүүнд агуулахын үлдэгдэл хөтлөхгүй. Эхлээд бүтээгдэхүүний тохиргооноос агуулахын үлдэгдэл хөтлөхийг идэвхжүүлнэ үү.");
       return;
     }
 
@@ -640,11 +688,15 @@ export default function ProductsPage() {
           <div>
             <p className="eyebrow">Каталог</p>
             <div className="heading-line">
-              <h2>Барааны жагсаалт</h2>
+              <h2>Бүтээгдэхүүний жагсаалт</h2>
               {!loading ? <span className="soft-pill">{filtered.length} илэрц</span> : null}
             </div>
           </div>
           <div className="toolbar-actions">
+            <button className="secondary-button" type="button" onClick={openCategoryModal}>
+              <Tags size={16} aria-hidden="true" />
+              <span>Ангилал нэмэх</span>
+            </button>
             <button
               className="secondary-button"
               type="button"
@@ -656,7 +708,7 @@ export default function ProductsPage() {
             </button>
             <button className="primary-button" type="button" onClick={openCreateModal} data-testid="product-create-button">
               <Plus size={16} aria-hidden="true" />
-              <span>Бараа нэмэх</span>
+              <span>Бүтээгдэхүүн нэмэх</span>
             </button>
           </div>
         </div>
@@ -671,7 +723,7 @@ export default function ProductsPage() {
           />
         </label>
 
-        <div className="filter-tabs product-view-tabs" role="tablist" aria-label="Барааны төрөл">
+        <div className="filter-tabs product-view-tabs" role="tablist" aria-label="Бүтээгдэхүүний төрөл">
           {viewOptions.map((option) => {
             const Icon = option.icon;
             const active = viewFilter === option.key;
@@ -694,7 +746,7 @@ export default function ProductsPage() {
 
         {error ? (
           <div className="state-box error-state">
-            <strong>Барааны мэдээлэл боловсруулахад алдаа гарлаа</strong>
+            <strong>Бүтээгдэхүүний мэдээлэл боловсруулахад алдаа гарлаа</strong>
             <p>{error}</p>
           </div>
         ) : null}
@@ -780,7 +832,7 @@ export default function ProductsPage() {
                 })
               ) : (
                 <tr>
-                  <td colSpan={9}>Бараа олдсонгүй.</td>
+                  <td colSpan={9}>Бүтээгдэхүүн олдсонгүй.</td>
                 </tr>
               )}
             </tbody>
@@ -788,19 +840,57 @@ export default function ProductsPage() {
         </div>
       </section>
 
+      {categoryModalOpen ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="product-category-title">
+          <form className="modal-card narrow-modal" onSubmit={handleCategorySubmit} data-testid="product-category-modal">
+            <button
+              className="icon-button modal-close"
+              type="button"
+              aria-label="Хаах"
+              onClick={() => setCategoryModalOpen(false)}
+              disabled={categorySaving}
+            >
+              <X size={18} aria-hidden="true" />
+            </button>
+            <p className="eyebrow">Бүтээгдэхүүний ангилал</p>
+            <h2 id="product-category-title">Ангилал нэмэх</h2>
+            <label className="field">
+              <span>Ангиллын нэр</span>
+              <input
+                value={categoryForm.name}
+                onChange={(event) => setCategoryForm((current) => ({ ...current, name: event.target.value }))}
+                placeholder="Жишээ: Кофе"
+                required
+                data-testid="product-category-name"
+              />
+            </label>
+            {categoryFormError ? <div className="form-error">{categoryFormError}</div> : null}
+            <div className="modal-actions">
+              <button className="secondary-button" type="button" onClick={() => setCategoryModalOpen(false)} disabled={categorySaving}>
+                Болих
+              </button>
+              <button className="primary-button" type="submit" disabled={categorySaving}>
+                <Save size={17} aria-hidden="true" />
+                <span>{categorySaving ? "Хадгалж байна" : "Хадгалах"}</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
       {modalOpen ? (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="product-form-title">
           <form className="modal-card product-modal" onSubmit={handleSubmit} data-testid="product-modal">
             <button className="icon-button modal-close" type="button" aria-label="Хаах" onClick={() => setModalOpen(false)}>
               <X size={18} aria-hidden="true" />
             </button>
-            <p className="eyebrow">Odoo бараа</p>
-            <h2 id="product-form-title">{editingProduct ? "Бараа засах" : "Бараа нэмэх"}</h2>
+            <p className="eyebrow">Odoo бүтээгдэхүүн</p>
+            <h2 id="product-form-title">{editingProduct ? "Бүтээгдэхүүн засах" : "Бүтээгдэхүүн нэмэх"}</h2>
 
             <div className="product-form-layout">
               <div className="image-upload-box">
                 {form.image_preview ? (
-                  <img className="image-preview" src={form.image_preview} alt="Барааны зураг" />
+                  <img className="image-preview" src={form.image_preview} alt="Бүтээгдэхүүний зураг" />
                 ) : (
                   <div className="image-empty-state">
                     <ImageIcon size={28} aria-hidden="true" />
@@ -830,7 +920,7 @@ export default function ProductsPage() {
 
               <div className="product-fields">
                 <label className="field">
-                  <span>Барааны нэр</span>
+                  <span>Бүтээгдэхүүний нэр</span>
                   <input
                     type="text"
                     value={form.name}
@@ -1092,7 +1182,7 @@ export default function ProductsPage() {
 
             {!stockProduct.is_storable ? (
               <div className="inline-warning">
-                Энэ бараанд агуулахын үлдэгдэл хөтлөхгүй. Орлого авахын өмнө барааны тохиргооноос агуулахын үлдэгдэл хөтлөхийг идэвхжүүлнэ үү.
+                Энэ бүтээгдэхүүнд агуулахын үлдэгдэл хөтлөхгүй. Орлого авахын өмнө бүтээгдэхүүний тохиргооноос агуулахын үлдэгдэл хөтлөхийг идэвхжүүлнэ үү.
               </div>
             ) : null}
 

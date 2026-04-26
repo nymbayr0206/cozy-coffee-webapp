@@ -83,7 +83,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
       }
 
       if (orderLines.length === 0 || total <= 0) {
-        setError("QPay QR үүсгэхийн өмнө сагсанд бараа нэмнэ үү.");
+      setError("QPay QR үүсгэхийн өмнө сагсанд бүтээгдэхүүн нэмнэ үү.");
         return;
       }
 

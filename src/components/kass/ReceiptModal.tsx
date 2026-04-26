@@ -75,7 +75,7 @@ export function ReceiptModal({ receipt, onNewSale }: ReceiptModalProps) {
 
           <div className="receipt-lines">
             <header className="receipt-line-heading">
-              <span>Бараа</span>
+              <span>Бүтээгдэхүүн</span>
               <span>Тоо</span>
               <span>Нэгж үнэ</span>
               <span>Нийт</span>

@@ -378,13 +378,13 @@ nextjs-portal {
 }
 
 .product-view-tabs {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   margin-bottom: 12px;
 }
 
 .filter-tab {
   min-width: 0;
-  min-height: 44px;
+  min-height: 48px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -398,9 +398,7 @@ nextjs-portal {
 
 .filter-tab span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.25;
 }
 
 .filter-tab strong {
@@ -1855,6 +1853,18 @@ nextjs-portal {
 
 .warehouse-kpi-grid .metric svg {
   color: var(--teal);
+}
+
+.partner-kpi-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 12px;
+}
+
+.partner-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .warehouse-card-list {

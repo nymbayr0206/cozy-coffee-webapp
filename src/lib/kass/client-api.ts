@@ -12,6 +12,8 @@ import type {
   OdooLoginResponse,
   OpenSessionRequest,
   OpenSessionResponse,
+  PartnerFormRequest,
+  PartnerResponse,
   PartnersResponse,
   ProductFormRequest,
   ProductRecipeRequest,
@@ -44,6 +46,7 @@ const errorMessages: Record<string, string> = {
   product_delete_failed: "Бараа хасахад алдаа гарлаа.",
   category_create_failed: "Ангилал нэмэхэд алдаа гарлаа.",
   partner_not_found: "Харилцагч олдсонгүй.",
+  partner_create_failed: "Харилцагч нэмэхэд алдаа гарлаа.",
   stock_location_not_found: "Odoo агуулахын байршил олдсонгүй.",
   stock_receive_failed: "Барааны орлого авахад алдаа гарлаа.",
   recipe_save_failed: "Барааны жор хадгалахад алдаа гарлаа.",
@@ -151,6 +154,13 @@ export function getProductUoms() {
 
 export function getPartners() {
   return request<PartnersResponse>("/partners");
+}
+
+export function createPartner(body: PartnerFormRequest) {
+  return request<PartnerResponse>("/partners", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 export function createKassProduct(body: ProductFormRequest) {

@@ -69,6 +69,18 @@ export interface PartnersResponse {
   partners: KassPartner[];
 }
 
+export interface PartnerFormRequest {
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  is_supplier?: boolean;
+  is_customer?: boolean;
+}
+
+export interface PartnerResponse {
+  partner: KassPartner;
+}
+
 export interface ProductFormRequest {
   name: string;
   sale_price: number;

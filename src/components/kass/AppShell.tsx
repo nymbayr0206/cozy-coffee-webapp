@@ -13,6 +13,7 @@ import {
   Settings,
   ShoppingCart,
   Square,
+  Users,
   Warehouse,
   X,
 } from "lucide-react";
@@ -64,8 +65,9 @@ const ODOO_USER_NAME_KEY = "kass.odoo_user_name";
 const navItems = [
   { href: "/pos", label: "Касс", icon: ShoppingCart },
   { href: "/dashboard", label: "Хянах самбар", icon: LayoutDashboard },
-  { href: "/products", label: "Бараа", icon: Boxes },
+  { href: "/products", label: "Бүтээгдэхүүн", icon: Boxes },
   { href: "/warehouse", label: "Агуулах", icon: Warehouse },
+  { href: "/partners", label: "Харилцагч", icon: Users },
   { href: "/sales", label: "Борлуулалт", icon: ReceiptText },
   { href: "/reports", label: "Тайлан", icon: BarChart3 },
   { href: "/settings", label: "Тохиргоо", icon: Settings },

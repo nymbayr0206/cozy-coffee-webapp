@@ -140,7 +140,7 @@ export function ProductGrid({ onAddProduct }: ProductGridProps) {
     });
   }, [categories, category, products, query]);
 
-  const resultLabel = query.trim() || category ? `${filteredProducts.length} илэрц` : `${products.length} бараа`;
+  const resultLabel = query.trim() || category ? `${filteredProducts.length} илэрц` : `${products.length} бүтээгдэхүүн`;
   const activeCategoryLabel = category ? categories.find((item) => item.key === category)?.label ?? "Ангилал" : "Ангилал";
 
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -157,7 +157,7 @@ export function ProductGrid({ onAddProduct }: ProductGridProps) {
     <section className="product-grid-panel">
       <div className="panel-toolbar">
         <div>
-          <p className="eyebrow">Бараа</p>
+          <p className="eyebrow">Бүтээгдэхүүн</p>
           <div className="heading-line">
             <h2>{activeCategoryLabel}</h2>
             {!loading && !error ? <span className="soft-pill">{resultLabel}</span> : null}
@@ -203,7 +203,7 @@ export function ProductGrid({ onAddProduct }: ProductGridProps) {
                     <Package size={18} aria-hidden="true" />
                   </span>
                   <strong>{item.label}</strong>
-                  <small>{item.count} бараа</small>
+                  <small>{item.count} бүтээгдэхүүн</small>
                 </button>
               );
             })}
@@ -213,7 +213,7 @@ export function ProductGrid({ onAddProduct }: ProductGridProps) {
 
       {error ? (
         <div className="state-box error-state">
-          <strong>Бараа татахад алдаа гарлаа</strong>
+          <strong>Бүтээгдэхүүн татахад алдаа гарлаа</strong>
           <p>{error}</p>
           <button className="secondary-button" type="button" onClick={loadProducts}>
             Дахин оролдох
@@ -222,7 +222,7 @@ export function ProductGrid({ onAddProduct }: ProductGridProps) {
       ) : null}
 
       {loading ? (
-        <div className="product-grid" aria-label="Бараа уншиж байна">
+        <div className="product-grid" aria-label="Бүтээгдэхүүн уншиж байна">
           {Array.from({ length: 8 }).map((_, index) => (
             <div className="product-skeleton" key={index} />
           ))}
@@ -231,10 +231,10 @@ export function ProductGrid({ onAddProduct }: ProductGridProps) {
 
       {!loading && !error && (query.trim() || category) && filteredProducts.length === 0 ? (
         <div className="state-box">
-          <strong>Бараа олдсонгүй</strong>
+          <strong>Бүтээгдэхүүн олдсонгүй</strong>
           <p>
             {category && !query.trim()
-              ? "Энэ POS ангилалд касс дээр харагдах бараа оноогдоогүй байна."
+              ? "Энэ POS ангилалд касс дээр харагдах бүтээгдэхүүн оноогдоогүй байна."
               : "Хайлтын утга эсвэл ангиллаа өөрчилнө үү."}
           </p>
         </div>
