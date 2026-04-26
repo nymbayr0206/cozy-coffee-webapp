@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { jsonError, KassServerError } from "@/lib/kass/errors";
-import { getSessionEvents, getSessionHistory } from "@/lib/kass/store";
+import { getActiveSession, getSessionEvents, getSessionHistory } from "@/lib/kass/store";
 
 export const runtime = "nodejs";
 
@@ -28,6 +28,7 @@ export async function GET(request: Request) {
         limit,
       }),
       events: getSessionEvents(sessionId),
+      active_session: getActiveSession(),
     });
   } catch (error) {
     return jsonError(error);

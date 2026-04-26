@@ -10,6 +10,7 @@ import type {
   KassReport,
   OdooLoginRequest,
   OdooLoginResponse,
+  PartnerDeleteResponse,
   OpenSessionRequest,
   OpenSessionResponse,
   PartnerFormRequest,
@@ -30,7 +31,11 @@ import type {
   ProductsResponse,
   SalesReportPeriod,
   SalesReportResponse,
+  SessionsResponse,
   UomsResponse,
+  UomDeleteResponse,
+  UomFormRequest,
+  UomResponse,
 } from "./client-types";
 
 const API_ROOT = "/api/kass";
@@ -49,10 +54,13 @@ const errorMessages: Record<string, string> = {
   category_delete_failed: "Ангилал устгахад алдаа гарлаа.",
   partner_not_found: "Харилцагч олдсонгүй.",
   partner_create_failed: "Харилцагч нэмэхэд алдаа гарлаа.",
+  partner_update_failed: "Харилцагч засахад алдаа гарлаа.",
+  partner_delete_failed: "Харилцагч устгахад алдаа гарлаа.",
   stock_location_not_found: "Odoo агуулахын байршил олдсонгүй.",
   stock_receive_failed: "Барааны орлого авахад алдаа гарлаа.",
   recipe_save_failed: "Барааны жор хадгалахад алдаа гарлаа.",
   session_not_found: "Ээлж олдсонгүй. Шинэ ээлж нээгээд дахин оролдоно уу.",
+  session_already_open: "Касс дээр ээлж аль хэдийн нээгдсэн байна.",
   session_closed: "Энэ ээлж хаагдсан байна. Шинэ ээлж нээнэ үү.",
   invalid_payment_method: "Төлбөрийн төрөл буруу байна.",
   order_create_failed: "Захиалга үүсгэхэд алдаа гарлаа.",
@@ -161,6 +169,19 @@ export function getProductUoms() {
   return request<UomsResponse>("/uoms");
 }
 
+export function createProductUom(body: UomFormRequest) {
+  return request<UomResponse>("/uoms", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteProductUom(uomId: number) {
+  return request<UomDeleteResponse>(`/uoms?id=${encodeURIComponent(uomId)}`, {
+    method: "DELETE",
+  });
+}
+
 export function getPartners() {
   return request<PartnersResponse>("/partners");
 }
@@ -169,6 +190,19 @@ export function createPartner(body: PartnerFormRequest) {
   return request<PartnerResponse>("/partners", {
     method: "POST",
     body: JSON.stringify(body),
+  });
+}
+
+export function updatePartner(partnerId: number, body: Partial<PartnerFormRequest>) {
+  return request<PartnerResponse>(`/partners/${encodeURIComponent(partnerId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function deletePartner(partnerId: number) {
+  return request<PartnerDeleteResponse>(`/partners/${encodeURIComponent(partnerId)}`, {
+    method: "DELETE",
   });
 }
 
@@ -247,6 +281,20 @@ export function checkQpayPayment(body: QpayCheckRequest) {
 
 export function getSessionReport(sessionId: string) {
   return request<KassReport>(`/report?session_id=${encodeURIComponent(sessionId)}`);
+}
+
+export function getKassSessions(options?: {
+  status?: "open" | "closed";
+  limit?: number;
+  sessionId?: string;
+}) {
+  const query = new URLSearchParams();
+  if (options?.status) query.set("status", options.status);
+  if (options?.limit) query.set("limit", String(options.limit));
+  if (options?.sessionId) query.set("session_id", options.sessionId);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+
+  return request<SessionsResponse>(`/sessions${suffix}`);
 }
 
 export function getSalesReport(period: SalesReportPeriod, start: string, end: string) {

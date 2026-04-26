@@ -9,6 +9,8 @@ interface CreatePartnerBody {
   name?: unknown;
   phone?: unknown;
   email?: unknown;
+  company_register?: unknown;
+  bank_account?: unknown;
   is_supplier?: unknown;
   is_customer?: unknown;
 }
@@ -30,6 +32,8 @@ export async function POST(request: Request) {
       name,
       phone: typeof body.phone === "string" ? body.phone : null,
       email: typeof body.email === "string" ? body.email : null,
+      company_register: typeof body.company_register === "string" ? body.company_register : null,
+      bank_account: typeof body.bank_account === "string" ? body.bank_account : null,
       is_supplier: typeof body.is_supplier === "boolean" ? body.is_supplier : true,
       is_customer: typeof body.is_customer === "boolean" ? body.is_customer : false,
     });

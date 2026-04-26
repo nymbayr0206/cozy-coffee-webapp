@@ -97,17 +97,28 @@ interface OdooPartnerRecord {
   display_name?: string;
   phone?: string | false;
   email?: string | false;
+  company_registry?: string | false;
+  vat?: string | false;
   supplier_rank?: number;
   customer_rank?: number;
   active?: boolean;
 }
 
-function normalizePartner(record: OdooPartnerRecord) {
+interface OdooPartnerBankRecord {
+  id: number;
+  acc_number?: string | false;
+  partner_id?: [number, string] | false;
+  active?: boolean;
+}
+
+function normalizePartner(record: OdooPartnerRecord, bankAccount: string | null = null) {
   return {
     id: record.id,
     name: record.display_name ?? record.name ?? `Partner ${record.id}`,
     phone: record.phone || null,
     email: record.email || null,
+    company_register: record.company_registry || record.vat || null,
+    bank_account: bankAccount,
     supplier_rank: Number(record.supplier_rank ?? 0),
     customer_rank: Number(record.customer_rank ?? 0),
   };
@@ -147,6 +158,16 @@ interface ProductWriteInput {
   available_for_sale?: boolean;
   is_storable?: boolean;
   uom_id?: number | null;
+}
+
+interface PartnerWriteInput {
+  name?: string;
+  phone?: string | null;
+  email?: string | null;
+  company_register?: string | null;
+  bank_account?: string | null;
+  is_supplier?: boolean;
+  is_customer?: boolean;
 }
 
 interface RecipeLineInput {
@@ -913,7 +934,8 @@ export async function fetchOdooProducts(options: { scope?: "pos" | "all" | "hidd
   }
 
   if (scope === "production") {
-    if (modelFields.has(filterField)) domain.push([filterField, "=", true]);
+    if (modelFields.has("available_in_pos")) domain.push(["available_in_pos", "=", true]);
+    else if (modelFields.has(filterField)) domain.push([filterField, "=", true]);
     if (modelFields.has("is_storable")) domain.push(["is_storable", "=", false]);
     else if (modelFields.has("type")) domain.push(["type", "!=", "product"]);
   }
@@ -1291,13 +1313,106 @@ export async function fetchOdooProductUoms() {
   };
 }
 
+function normalizeUom(record: OdooUomRecord) {
+  return {
+    id: record.id,
+    name: record.name ?? record.display_name ?? `UoM ${record.id}`,
+    display_name: record.display_name ?? record.name ?? `UoM ${record.id}`,
+    category_id: Array.isArray(record.category_id) ? record.category_id[0] : null,
+    category_name: Array.isArray(record.category_id) ? record.category_id[1] : null,
+    uom_type: record.uom_type || null,
+  };
+}
+
+export async function createOdooProductUom(input: {
+  name: string;
+  category_id: number;
+  uom_type?: "reference" | "bigger" | "smaller";
+  factor_inv?: number | null;
+}) {
+  const name = cleanOptionalText(input.name);
+  if (!name) {
+    throw new KassServerError("validation_error", "Хэмжих нэгжийн нэр оруулна уу.", 400);
+  }
+
+  if (!Number.isInteger(input.category_id) || input.category_id <= 0) {
+    throw new KassServerError("validation_error", "Хэмжих нэгжийн ангилал буруу байна.", 400);
+  }
+
+  const config = getOdooConfig();
+  const uid = await authenticate(config);
+  const modules = await getModuleStates(config, uid);
+  assertModuleInstalled(modules, "product");
+
+  try {
+    const uomFields = await getFieldNames(config, uid, "uom.uom");
+    const values: Record<string, unknown> = {
+      name,
+      category_id: input.category_id,
+    };
+    const uomType = input.uom_type ?? "reference";
+
+    if (uomFields.has("uom_type")) values.uom_type = uomType;
+    if (input.factor_inv && input.factor_inv > 0 && uomType !== "reference") {
+      if (uomFields.has("factor_inv")) values.factor_inv = input.factor_inv;
+      else if (uomFields.has("factor")) values.factor = 1 / input.factor_inv;
+    }
+    if (uomFields.has("active")) values.active = true;
+
+    const uomId = await executeKw<number>(config, uid, "uom.uom", "create", [values]);
+    const fields = ["id", "name", "display_name", "category_id", "uom_type", "active"].filter((field) =>
+      uomFields.has(field),
+    );
+    const records = await executeKw<OdooUomRecord[]>(config, uid, "uom.uom", "read", [[uomId], fields]);
+
+    return normalizeUom(records[0]);
+  } catch (error) {
+    if (error instanceof KassServerError) throw error;
+    throw new KassServerError("validation_error", "Odoo дээр хэмжих нэгж нэмэхэд алдаа гарлаа.", 502);
+  }
+}
+
+export async function deleteOdooProductUom(uomId: number) {
+  if (!Number.isInteger(uomId) || uomId <= 0) {
+    throw new KassServerError("validation_error", "Хэмжих нэгжийн ID буруу байна.", 400);
+  }
+
+  const config = getOdooConfig();
+  const uid = await authenticate(config);
+  const modules = await getModuleStates(config, uid);
+  assertModuleInstalled(modules, "product");
+
+  try {
+    const uomFields = await getFieldNames(config, uid, "uom.uom");
+    if (uomFields.has("active")) {
+      const archived = await executeKw<boolean>(config, uid, "uom.uom", "write", [[uomId], { active: false }]);
+      return { ok: Boolean(archived), uom_id: uomId, archived: Boolean(archived) };
+    }
+
+    const deleted = await executeKw<boolean>(config, uid, "uom.uom", "unlink", [[uomId]]);
+    return { ok: Boolean(deleted), uom_id: uomId, archived: false };
+  } catch (error) {
+    if (error instanceof KassServerError) throw error;
+    throw new KassServerError("validation_error", "Odoo дээр хэмжих нэгж хасахад алдаа гарлаа.", 502);
+  }
+}
+
 export async function fetchOdooPartners() {
   const config = getOdooConfig();
   const uid = await authenticate(config);
   const partnerFields = await getFieldNames(config, uid, "res.partner");
-  const fields = ["id", "name", "display_name", "phone", "email", "supplier_rank", "customer_rank", "active"].filter(
-    (field) => partnerFields.has(field),
-  );
+  const fields = [
+    "id",
+    "name",
+    "display_name",
+    "phone",
+    "email",
+    "company_registry",
+    "vat",
+    "supplier_rank",
+    "customer_rank",
+    "active",
+  ].filter((field) => partnerFields.has(field));
   const domain = partnerFields.has("active") ? [["active", "=", true]] : [];
   const records = await executeKw<OdooPartnerRecord[]>(
     config,
@@ -1311,9 +1426,14 @@ export async function fetchOdooPartners() {
       order: partnerFields.has("name") ? "name asc" : "id asc",
     },
   );
+  const bankAccounts = await readPartnerBankAccountMap(
+    config,
+    uid,
+    records.map((record) => record.id),
+  );
 
   return {
-    partners: records.map(normalizePartner),
+    partners: records.map((record) => normalizePartner(record, bankAccounts.get(record.id) ?? null)),
   };
 }
 
@@ -1321,6 +1441,8 @@ export async function createOdooPartner(input: {
   name: string;
   phone?: string | null;
   email?: string | null;
+  company_register?: string | null;
+  bank_account?: string | null;
   is_supplier?: boolean;
   is_customer?: boolean;
 }) {
@@ -1337,18 +1459,206 @@ export async function createOdooPartner(input: {
     const values: Record<string, unknown> = { name };
     const phone = cleanOptionalText(input.phone);
     const email = cleanOptionalText(input.email);
+    const companyRegister = cleanOptionalText(input.company_register);
 
     if (phone && partnerFields.has("phone")) values.phone = phone;
     if (email && partnerFields.has("email")) values.email = email;
+    if (companyRegister) applyPartnerCompanyRegister(values, partnerFields, companyRegister);
     if (partnerFields.has("supplier_rank")) values.supplier_rank = input.is_supplier === false ? 0 : 1;
     if (partnerFields.has("customer_rank")) values.customer_rank = input.is_customer ? 1 : 0;
     if (partnerFields.has("active")) values.active = true;
 
     const partnerId = await executeKw<number>(config, uid, "res.partner", "create", [values]);
+    await syncPartnerBankAccount(config, uid, partnerId, input.bank_account, "partner_create_failed");
     return readPartner(config, uid, partnerId);
   } catch (error) {
     if (error instanceof KassServerError) throw error;
     throw new KassServerError("partner_create_failed", "Odoo дээр харилцагч нэмэхэд алдаа гарлаа.", 502);
+  }
+}
+
+function applyPartnerCompanyRegister(
+  values: Record<string, unknown>,
+  partnerFields: Set<string>,
+  companyRegister: string | false,
+) {
+  if (partnerFields.has("company_registry")) {
+    values.company_registry = companyRegister || false;
+    return;
+  }
+
+  if (partnerFields.has("vat")) {
+    values.vat = companyRegister || false;
+  }
+}
+
+function partnerWriteValues(partnerFields: Set<string>, input: PartnerWriteInput) {
+  const values: Record<string, unknown> = {};
+
+  if (input.name !== undefined) {
+    const name = cleanOptionalText(input.name);
+    if (!name) {
+      throw new KassServerError("validation_error", "Харилцагчийн нэр оруулна уу.", 400);
+    }
+    values.name = name;
+  }
+
+  if (input.phone !== undefined && partnerFields.has("phone")) {
+    values.phone = cleanOptionalText(input.phone) || false;
+  }
+
+  if (input.email !== undefined && partnerFields.has("email")) {
+    values.email = cleanOptionalText(input.email) || false;
+  }
+
+  if (input.company_register !== undefined) {
+    applyPartnerCompanyRegister(values, partnerFields, cleanOptionalText(input.company_register));
+  }
+
+  if (input.is_supplier !== undefined && partnerFields.has("supplier_rank")) {
+    values.supplier_rank = input.is_supplier ? 1 : 0;
+  }
+
+  if (input.is_customer !== undefined && partnerFields.has("customer_rank")) {
+    values.customer_rank = input.is_customer ? 1 : 0;
+  }
+
+  if (partnerFields.has("active")) {
+    values.active = true;
+  }
+
+  return values;
+}
+
+async function readPartnerBankAccountMap(config: OdooConfig, uid: number, partnerIds: number[]) {
+  const result = new Map<number, string>();
+  if (partnerIds.length === 0) return result;
+
+  try {
+    const bankFields = await getFieldNames(config, uid, "res.partner.bank");
+    if (!bankFields.has("partner_id") || !bankFields.has("acc_number")) return result;
+
+    const domain: unknown[] = [["partner_id", "in", partnerIds]];
+    if (bankFields.has("active")) domain.push(["active", "=", true]);
+
+    const fields = ["id", "acc_number", "partner_id", "active"].filter((field) => bankFields.has(field));
+    const records = await executeKw<OdooPartnerBankRecord[]>(
+      config,
+      uid,
+      "res.partner.bank",
+      "search_read",
+      [domain],
+      { fields, limit: Math.max(partnerIds.length * 3, 100), order: "id asc" },
+    );
+
+    for (const record of records) {
+      const partnerId = Array.isArray(record.partner_id) ? record.partner_id[0] : null;
+      if (partnerId && !result.has(partnerId) && record.acc_number) {
+        result.set(partnerId, record.acc_number);
+      }
+    }
+  } catch {
+    return result;
+  }
+
+  return result;
+}
+
+async function syncPartnerBankAccount(
+  config: OdooConfig,
+  uid: number,
+  partnerId: number,
+  bankAccount: string | null | undefined,
+  failureCode: "partner_create_failed" | "partner_update_failed" = "partner_update_failed",
+) {
+  if (bankAccount === undefined) return;
+
+  const bankFields = await getFieldNames(config, uid, "res.partner.bank");
+  if (!bankFields.has("partner_id") || !bankFields.has("acc_number")) {
+    throw new KassServerError(failureCode, "Odoo дээр харилцагчийн дансны талбар олдсонгүй.", 502);
+  }
+
+  const domain: unknown[] = [["partner_id", "=", partnerId]];
+  if (bankFields.has("active")) domain.push(["active", "=", true]);
+
+  const records = await executeKw<OdooPartnerBankRecord[]>(
+    config,
+    uid,
+    "res.partner.bank",
+    "search_read",
+    [domain],
+    { fields: ["id", "acc_number"].filter((field) => bankFields.has(field)), limit: 1, order: "id asc" },
+  );
+  const existingId = records[0]?.id;
+  const account = cleanOptionalText(bankAccount);
+
+  if (account) {
+    if (existingId) {
+      await executeKw<boolean>(config, uid, "res.partner.bank", "write", [[existingId], { acc_number: account }]);
+      return;
+    }
+
+    const values: Record<string, unknown> = {
+      partner_id: partnerId,
+      acc_number: account,
+    };
+    if (bankFields.has("active")) values.active = true;
+    await executeKw<number>(config, uid, "res.partner.bank", "create", [values]);
+    return;
+  }
+
+  if (existingId) {
+    if (bankFields.has("active")) {
+      await executeKw<boolean>(config, uid, "res.partner.bank", "write", [[existingId], { active: false }]);
+    } else {
+      await executeKw<boolean>(config, uid, "res.partner.bank", "unlink", [[existingId]]);
+    }
+  }
+}
+
+export async function updateOdooPartner(partnerId: number, input: PartnerWriteInput) {
+  const config = getOdooConfig();
+  const uid = await authenticate(config);
+
+  try {
+    await readPartner(config, uid, partnerId);
+    const partnerFields = await getFieldNames(config, uid, "res.partner");
+    const values = partnerWriteValues(partnerFields, input);
+
+    if (Object.keys(values).length > 0) {
+      await executeKw<boolean>(config, uid, "res.partner", "write", [[partnerId], values]);
+    }
+
+    await syncPartnerBankAccount(config, uid, partnerId, input.bank_account);
+    return readPartner(config, uid, partnerId);
+  } catch (error) {
+    if (error instanceof KassServerError) throw error;
+    throw new KassServerError("partner_update_failed", "Odoo дээр харилцагч засахад алдаа гарлаа.", 502);
+  }
+}
+
+export async function archiveOdooPartner(partnerId: number) {
+  const config = getOdooConfig();
+  const uid = await authenticate(config);
+
+  if (partnerId === config.defaultPartnerId) {
+    throw new KassServerError("validation_error", "Үндсэн харилцагчийг устгах боломжгүй.", 400);
+  }
+
+  try {
+    await readPartner(config, uid, partnerId);
+    const partnerFields = await getFieldNames(config, uid, "res.partner");
+
+    if (partnerFields.has("active")) {
+      await executeKw<boolean>(config, uid, "res.partner", "write", [[partnerId], { active: false }]);
+    } else {
+      await executeKw<boolean>(config, uid, "res.partner", "unlink", [[partnerId]]);
+    }
+
+    return { ok: true, partner_id: partnerId, archived: true };
+  } catch (error) {
+    if (error instanceof KassServerError) throw error;
+    throw new KassServerError("partner_delete_failed", "Odoo дээр харилцагч устгахад алдаа гарлаа.", 502);
   }
 }
 
@@ -1497,9 +1807,17 @@ async function getSupplierLocation(config: OdooConfig, uid: number) {
 
 async function readPartner(config: OdooConfig, uid: number, partnerId: number) {
   const partnerFields = await getFieldNames(config, uid, "res.partner");
-  const fields = ["id", "name", "display_name", "phone", "email", "supplier_rank", "customer_rank"].filter((field) =>
-    partnerFields.has(field),
-  );
+  const fields = [
+    "id",
+    "name",
+    "display_name",
+    "phone",
+    "email",
+    "company_registry",
+    "vat",
+    "supplier_rank",
+    "customer_rank",
+  ].filter((field) => partnerFields.has(field));
   const partners = await executeKw<OdooPartnerRecord[]>(
     config,
     uid,
@@ -1513,7 +1831,8 @@ async function readPartner(config: OdooConfig, uid: number, partnerId: number) {
     throw new KassServerError("partner_not_found", "Харилцагч олдсонгүй.", 404);
   }
 
-  return normalizePartner(partner);
+  const bankAccounts = await readPartnerBankAccountMap(config, uid, [partnerId]);
+  return normalizePartner(partner, bankAccounts.get(partnerId) ?? null);
 }
 
 function escapeHtml(value: string) {
@@ -2169,4 +2488,121 @@ export async function createOdooSaleOrder(
 
     throw new KassServerError("order_create_failed", "Could not create Odoo sale order", 502);
   }
+}
+
+export async function consumeOdooRecipeStock(lines: Array<{ product_id: number; quantity: number; price: number }>) {
+  const config = getOdooConfig();
+  const uid = await authenticate(config);
+  const modules = await getModuleStates(config, uid);
+  assertModuleInstalled(modules, "product");
+  assertModuleInstalled(modules, "stock");
+
+  const location = await getDefaultStockLocation(config, uid);
+  const consumption = new Map<number, number>();
+
+  try {
+    for (const line of lines) {
+      const soldQuantity = Number(line.quantity);
+      if (!Number.isFinite(soldQuantity) || soldQuantity <= 0) continue;
+
+      const product = await readProductForRecipe(config, uid, line.product_id);
+      const templateId = relationId(product.product_tmpl_id);
+      if (!templateId) {
+        throw new KassServerError("product_not_found", "Барааны template олдсонгүй.", 404);
+      }
+
+      let bom: OdooBomRecord | null = null;
+      let bomLines: OdooBomLineRecord[] = [];
+
+      if (modules.mrp === "installed") {
+        bom = await readPrimaryBom(config, uid, line.product_id, templateId);
+        bomLines = bom ? await readBomLines(config, uid, bom.id) : [];
+      }
+
+      if (bomLines.length > 0) {
+        for (const bomLine of bomLines) {
+          const componentId = relationId(bomLine.product_id);
+          const componentQuantity = Number(bomLine.product_qty ?? 0);
+          if (!componentId || !Number.isFinite(componentQuantity) || componentQuantity <= 0) continue;
+
+          consumption.set(componentId, Number(consumption.get(componentId) ?? 0) + componentQuantity * soldQuantity);
+        }
+        continue;
+      }
+
+      const isStorable = product.is_storable === true || product.type === "product";
+      if (isStorable) {
+        consumption.set(line.product_id, Number(consumption.get(line.product_id) ?? 0) + soldQuantity);
+      }
+    }
+
+    for (const [productId, quantity] of consumption.entries()) {
+      await consumeOdooProductStock(config, uid, location, productId, quantity);
+    }
+  } catch (error) {
+    if (error instanceof KassServerError) throw error;
+    throw new KassServerError("validation_error", "Агуулахын үлдэгдлээс орц хасахад алдаа гарлаа.", 502);
+  }
+}
+
+async function consumeOdooProductStock(
+  config: OdooConfig,
+  uid: number,
+  location: OdooStockLocationRecord,
+  productId: number,
+  quantity: number,
+) {
+  if (!Number.isFinite(quantity) || quantity <= 0) return;
+
+  const productFields = await getFieldNames(config, uid, "product.product");
+  const productReadFields = ["id", "name", "display_name", "uom_id"].filter((field) => productFields.has(field));
+  const products = await executeKw<OdooProductRecord[]>(config, uid, "product.product", "read", [
+    [productId],
+    productReadFields,
+  ]);
+  const product = products[0];
+
+  if (!product) {
+    throw new KassServerError("product_not_found", "Орцын бараа олдсонгүй.", 404);
+  }
+
+  const quantFields = await getFieldNames(config, uid, "stock.quant");
+  const quantReadFields = ["id", "quantity", "available_quantity", "inventory_quantity", "inventory_diff_quantity"].filter(
+    (field) => quantFields.has(field),
+  );
+  const quants = await executeKw<OdooStockQuantRecord[]>(
+    config,
+    uid,
+    "stock.quant",
+    "search_read",
+    [[["product_id", "=", productId], ["location_id", "=", location.id]]],
+    { fields: quantReadFields, limit: 1 },
+  );
+  const currentQuantity = Number(quants[0]?.quantity ?? quants[0]?.available_quantity ?? 0);
+
+  if (currentQuantity < quantity) {
+    const productName = product.display_name ?? product.name ?? `Product ${productId}`;
+    throw new KassServerError(
+      "validation_error",
+      `${productName} үлдэгдэл хүрэлцэхгүй байна. Байгаа: ${currentQuantity}, хэрэгтэй: ${quantity}.`,
+      409,
+    );
+  }
+
+  const quantValues: Record<string, unknown> = {
+    inventory_quantity: currentQuantity - quantity,
+  };
+
+  if (quantFields.has("inventory_diff_quantity")) {
+    quantValues.inventory_diff_quantity = -quantity;
+  }
+
+  const quantId = quants[0]?.id;
+  if (!quantId) {
+    const productName = product.display_name ?? product.name ?? `Product ${productId}`;
+    throw new KassServerError("validation_error", `${productName} агуулахын үлдэгдэл олдсонгүй.`, 409);
+  }
+
+  await executeKw<boolean>(config, uid, "stock.quant", "write", [[quantId], quantValues]);
+  await executeKw<boolean | unknown[]>(config, uid, "stock.quant", "action_apply_inventory", [[quantId]]);
 }

@@ -1,17 +1,64 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Building2, Mail, Phone, Plus, RefreshCcw, Save, Search, Users, X } from "lucide-react";
-import { createPartner, getPartners, getReadableError } from "@/lib/kass/client-api";
+import {
+  Building2,
+  CreditCard,
+  Edit3,
+  Mail,
+  Phone,
+  Plus,
+  RefreshCcw,
+  Save,
+  Search,
+  Trash2,
+  Users,
+  X,
+} from "lucide-react";
+import { createPartner, deletePartner, getPartners, getReadableError, updatePartner } from "@/lib/kass/client-api";
 import type { KassPartner, PartnerFormRequest } from "@/lib/kass/client-types";
 
-const emptyPartnerForm = {
+interface PartnerFormState {
+  name: string;
+  phone: string;
+  email: string;
+  company_register: string;
+  bank_account: string;
+  is_supplier: boolean;
+  is_customer: boolean;
+}
+
+const emptyPartnerForm: PartnerFormState = {
   name: "",
   phone: "",
   email: "",
+  company_register: "",
+  bank_account: "",
   is_supplier: true,
   is_customer: false,
 };
+
+function partnerToForm(partner: KassPartner): PartnerFormState {
+  return {
+    name: partner.name ?? "",
+    phone: partner.phone ?? "",
+    email: partner.email ?? "",
+    company_register: partner.company_register ?? "",
+    bank_account: partner.bank_account ?? "",
+    is_supplier: Number(partner.supplier_rank ?? 0) > 0,
+    is_customer: Number(partner.customer_rank ?? 0) > 0,
+  };
+}
+
+function partnerTypeLabel(partner: KassPartner) {
+  const isSupplier = Number(partner.supplier_rank ?? 0) > 0;
+  const isCustomer = Number(partner.customer_rank ?? 0) > 0;
+
+  if (isSupplier && isCustomer) return "Нийлүүлэгч, хэрэглэгч";
+  if (isSupplier) return "Нийлүүлэгч";
+  if (isCustomer) return "Хэрэглэгч";
+  return "Ерөнхий";
+}
 
 export default function PartnersPage() {
   const [partners, setPartners] = useState<KassPartner[]>([]);
@@ -19,8 +66,10 @@ export default function PartnersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState(emptyPartnerForm);
+  const [editingPartner, setEditingPartner] = useState<KassPartner | null>(null);
+  const [form, setForm] = useState<PartnerFormState>(emptyPartnerForm);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
   async function loadPartners() {
@@ -47,7 +96,17 @@ export default function PartnersPage() {
     if (!normalizedQuery) return partners;
 
     return partners.filter((partner) =>
-      `${partner.name} ${partner.phone ?? ""} ${partner.email ?? ""}`.toLowerCase().includes(normalizedQuery),
+      [
+        partner.name,
+        partner.phone,
+        partner.email,
+        partner.company_register,
+        partner.bank_account,
+        partnerTypeLabel(partner),
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery),
     );
   }, [partners, query]);
 
@@ -61,9 +120,29 @@ export default function PartnersPage() {
   );
 
   function openCreateModal() {
+    setEditingPartner(null);
     setForm(emptyPartnerForm);
     setFormError(null);
     setModalOpen(true);
+  }
+
+  function openEditModal(partner: KassPartner) {
+    setEditingPartner(partner);
+    setForm(partnerToForm(partner));
+    setFormError(null);
+    setModalOpen(true);
+  }
+
+  function resetModal() {
+    setModalOpen(false);
+    setEditingPartner(null);
+    setForm(emptyPartnerForm);
+    setFormError(null);
+  }
+
+  function closeModal() {
+    if (saving) return;
+    resetModal();
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -83,18 +162,46 @@ export default function PartnersPage() {
         name,
         phone: form.phone.trim() || null,
         email: form.email.trim() || null,
+        company_register: form.company_register.trim() || null,
+        bank_account: form.bank_account.trim() || null,
         is_supplier: form.is_supplier,
         is_customer: form.is_customer,
       };
-      const response = await createPartner(body);
-      setPartners((current) => [response.partner, ...current]);
-      setModalOpen(false);
-      setForm(emptyPartnerForm);
+      const response = editingPartner
+        ? await updatePartner(editingPartner.id, body)
+        : await createPartner(body);
+
+      setPartners((current) => {
+        if (editingPartner) {
+          return current.map((partner) => (partner.id === response.partner.id ? response.partner : partner));
+        }
+
+        return [response.partner, ...current];
+      });
+      resetModal();
       await loadPartners();
     } catch (saveError) {
       setFormError(getReadableError(saveError));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDelete(partner: KassPartner) {
+    const confirmed = window.confirm(`${partner.name} харилцагчийг устгах уу?`);
+    if (!confirmed) return;
+
+    setDeletingId(partner.id);
+    setError(null);
+
+    try {
+      await deletePartner(partner.id);
+      setPartners((current) => current.filter((item) => item.id !== partner.id));
+      await loadPartners();
+    } catch (deleteError) {
+      setError(getReadableError(deleteError));
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -143,7 +250,7 @@ export default function PartnersPage() {
           <Search size={18} aria-hidden="true" />
           <input
             type="search"
-            placeholder="Нэр, утас, имэйлээр хайх"
+            placeholder="Нэр, утас, имэйл, регистр, дансаар хайх"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
@@ -151,26 +258,29 @@ export default function PartnersPage() {
 
         {error ? (
           <div className="state-box error-state">
-            <strong>Харилцагч татахад алдаа гарлаа</strong>
+            <strong>Харилцагчийн үйлдэл амжилтгүй боллоо</strong>
             <p>{error}</p>
           </div>
         ) : null}
 
-        <div className="table-wrap">
+        <div className="table-wrap partner-table-wrap">
           <table className="data-table partner-table">
             <thead>
               <tr>
                 <th>Нэр</th>
                 <th>Утас</th>
                 <th>Имэйл</th>
+                <th>Регистр</th>
+                <th>Данс</th>
                 <th>Төрөл</th>
+                <th>Үйлдэл</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 Array.from({ length: 6 }).map((_, index) => (
                   <tr key={index}>
-                    <td colSpan={4}>
+                    <td colSpan={7}>
                       <div className="row-skeleton" />
                     </td>
                   </tr>
@@ -183,6 +293,8 @@ export default function PartnersPage() {
                     </td>
                     <td>{partner.phone || "Утасгүй"}</td>
                     <td>{partner.email || "Имэйлгүй"}</td>
+                    <td>{partner.company_register || "Регистргүй"}</td>
+                    <td>{partner.bank_account || "Дансгүй"}</td>
                     <td>
                       <div className="partner-tags">
                         {Number(partner.supplier_rank ?? 0) > 0 ? <span className="soft-pill">Нийлүүлэгч</span> : null}
@@ -192,32 +304,95 @@ export default function PartnersPage() {
                         ) : null}
                       </div>
                     </td>
+                    <td>
+                      <div className="table-actions partner-actions">
+                        <button
+                          className="icon-button"
+                          type="button"
+                          aria-label={`${partner.name} засах`}
+                          title="Засах"
+                          onClick={() => openEditModal(partner)}
+                          data-testid="partner-edit-button"
+                        >
+                          <Edit3 size={16} aria-hidden="true" />
+                        </button>
+                        <button
+                          className="icon-button danger"
+                          type="button"
+                          aria-label={`${partner.name} устгах`}
+                          title="Устгах"
+                          onClick={() => void handleDelete(partner)}
+                          disabled={deletingId === partner.id}
+                          data-testid="partner-delete-button"
+                        >
+                          <Trash2 size={16} aria-hidden="true" />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={4}>Харилцагч олдсонгүй.</td>
+                  <td colSpan={7}>Харилцагч олдсонгүй.</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+
+        <div className="partner-card-list">
+          {loading ? (
+            Array.from({ length: 4 }).map((_, index) => <div className="row-skeleton" key={index} />)
+          ) : filtered.length > 0 ? (
+            filtered.map((partner) => (
+              <article className="partner-card" key={partner.id}>
+                <div>
+                  <strong>{partner.name}</strong>
+                  <span>{partnerTypeLabel(partner)}</span>
+                </div>
+                <div className="partner-card-meta">
+                  <span>Утас: {partner.phone || "Утасгүй"}</span>
+                  <span>Имэйл: {partner.email || "Имэйлгүй"}</span>
+                  <span>Регистр: {partner.company_register || "Регистргүй"}</span>
+                  <span>Данс: {partner.bank_account || "Дансгүй"}</span>
+                </div>
+                <div className="partner-card-actions">
+                  <button className="secondary-button" type="button" onClick={() => openEditModal(partner)}>
+                    <Edit3 size={16} aria-hidden="true" />
+                    <span>Засах</span>
+                  </button>
+                  <button
+                    className="danger-button"
+                    type="button"
+                    onClick={() => void handleDelete(partner)}
+                    disabled={deletingId === partner.id}
+                  >
+                    <Trash2 size={16} aria-hidden="true" />
+                    <span>Устгах</span>
+                  </button>
+                </div>
+              </article>
+            ))
+          ) : (
+            <div className="compact-empty">Харилцагч олдсонгүй.</div>
+          )}
+        </div>
       </section>
 
       {modalOpen ? (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="partner-form-title">
-          <form className="modal-card narrow-modal" onSubmit={handleSubmit} data-testid="partner-modal">
+          <form className="modal-card partner-modal-card" onSubmit={handleSubmit} data-testid="partner-modal">
             <button
               className="icon-button modal-close"
               type="button"
               aria-label="Хаах"
-              onClick={() => setModalOpen(false)}
+              onClick={closeModal}
               disabled={saving}
             >
               <X size={18} aria-hidden="true" />
             </button>
             <p className="eyebrow">Odoo харилцагч</p>
-            <h2 id="partner-form-title">Харилцагч нэмэх</h2>
+            <h2 id="partner-form-title">{editingPartner ? "Харилцагч засах" : "Харилцагч нэмэх"}</h2>
 
             <label className="field">
               <span>Нэр</span>
@@ -230,30 +405,62 @@ export default function PartnersPage() {
               />
             </label>
 
-            <label className="field">
-              <span>Утас</span>
-              <div className="input-with-icon">
-                <Phone size={16} aria-hidden="true" />
-                <input
-                  value={form.phone}
-                  onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
-                  placeholder="Заавал биш"
-                />
-              </div>
-            </label>
+            <div className="form-grid two-columns">
+              <label className="field">
+                <span>Утас</span>
+                <div className="input-with-icon">
+                  <Phone size={16} aria-hidden="true" />
+                  <input
+                    value={form.phone}
+                    onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
+                    placeholder="Заавал биш"
+                  />
+                </div>
+              </label>
 
-            <label className="field">
-              <span>Имэйл</span>
-              <div className="input-with-icon">
-                <Mail size={16} aria-hidden="true" />
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
-                  placeholder="Заавал биш"
-                />
-              </div>
-            </label>
+              <label className="field">
+                <span>Имэйл</span>
+                <div className="input-with-icon">
+                  <Mail size={16} aria-hidden="true" />
+                  <input
+                    type="email"
+                    value={form.email}
+                    onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
+                    placeholder="Заавал биш"
+                  />
+                </div>
+              </label>
+            </div>
+
+            <div className="form-grid two-columns">
+              <label className="field">
+                <span>Байгууллагын регистр</span>
+                <div className="input-with-icon">
+                  <Building2 size={16} aria-hidden="true" />
+                  <input
+                    value={form.company_register}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, company_register: event.target.value }))
+                    }
+                    placeholder="Жишээ: 1234567"
+                    data-testid="partner-register"
+                  />
+                </div>
+              </label>
+
+              <label className="field">
+                <span>Дансны дугаар</span>
+                <div className="input-with-icon">
+                  <CreditCard size={16} aria-hidden="true" />
+                  <input
+                    value={form.bank_account}
+                    onChange={(event) => setForm((current) => ({ ...current, bank_account: event.target.value }))}
+                    placeholder="Жишээ: MN123... эсвэл 5000..."
+                    data-testid="partner-bank-account"
+                  />
+                </div>
+              </label>
+            </div>
 
             <div className="form-grid two-columns">
               <label className="switch-field">
@@ -277,7 +484,7 @@ export default function PartnersPage() {
             {formError ? <div className="form-error">{formError}</div> : null}
 
             <div className="modal-actions">
-              <button className="secondary-button" type="button" onClick={() => setModalOpen(false)} disabled={saving}>
+              <button className="secondary-button" type="button" onClick={closeModal} disabled={saving}>
                 Болих
               </button>
               <button className="primary-button" type="submit" disabled={saving}>

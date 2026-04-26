@@ -37,7 +37,7 @@ import {
 } from "@/lib/kass/client-api";
 import type { KassCategory, KassPartner, KassProduct, KassUom, ProductFormRequest } from "@/lib/kass/client-types";
 
-type ProductViewFilter = "all" | "pos" | "hidden" | "production";
+type ProductViewFilter = "all" | "pos" | "hidden" | "production" | "categories";
 
 type ProductFormState = {
   name: string;
@@ -122,6 +122,23 @@ function isProductionProduct(product: KassProduct) {
   return product.is_storable !== true;
 }
 
+function isSalePointProduct(product: KassProduct) {
+  return product.available_for_sale !== false && Boolean(product.pos_category_ids?.length || product.pos_categories?.length);
+}
+
+function productMatchesPosCategory(product: KassProduct, category: KassCategory | undefined) {
+  if (!category) return true;
+
+  const categoryNames = new Set(
+    [category.display_name, category.name].filter(Boolean).map((name) => name.trim().toLowerCase()),
+  );
+  const productCategory = product.category?.trim().toLowerCase();
+  const hasCategoryId = product.pos_category_ids?.includes(category.id);
+  const hasCategoryName = product.pos_categories?.some((name) => categoryNames.has(name.trim().toLowerCase()));
+
+  return Boolean(hasCategoryId || hasCategoryName || (productCategory && categoryNames.has(productCategory)));
+}
+
 function stockQuantityText(product: KassProduct) {
   return Number(product.qty_available ?? 0).toLocaleString("mn-MN");
 }
@@ -142,6 +159,7 @@ export default function ProductsPage() {
   const [partners, setPartners] = useState<KassPartner[]>([]);
   const [query, setQuery] = useState("");
   const [viewFilter, setViewFilter] = useState<ProductViewFilter>("all");
+  const [selectedPosCategoryId, setSelectedPosCategoryId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [uomsLoading, setUomsLoading] = useState(true);
@@ -276,46 +294,58 @@ export default function ProductsPage() {
 
   const counts = useMemo(
     () => ({
-      all: products.length,
-      pos: products.filter((product) => product.available_for_sale !== false).length,
+      all: products.filter(isSalePointProduct).length,
+      pos: products.filter(isSalePointProduct).length,
       hidden: products.filter((product) => product.available_for_sale === false).length,
-      production: products.filter(
-        (product) => product.available_for_sale !== false && isProductionProduct(product),
-      ).length,
+      production: products.filter(isSalePointProduct).length,
+      categories: categories.length,
       stock: products.filter((product) => product.is_storable === true).length,
     }),
-    [products],
+    [categories.length, products],
   );
 
   const viewOptions = useMemo(
     () => [
-      { key: "all" as const, label: "Бүх бүтээгдэхүүн", count: counts.all, icon: Boxes },
+      { key: "all" as const, label: "Бүх POS ангиллын бараа", count: counts.all, icon: Boxes },
       { key: "pos" as const, label: "Кассаар зарагдах", count: counts.pos, icon: Eye },
       { key: "hidden" as const, label: "Касс дээр харагдахгүй", count: counts.hidden, icon: EyeOff },
-      { key: "production" as const, label: "Үйлдвэрлэлийн бүтээгдэхүүн", count: counts.production, icon: Factory },
+      { key: "production" as const, label: "Борлуулах цэгийн бараа", count: counts.production, icon: Factory },
+      { key: "categories" as const, label: "Ангилал", count: counts.categories, icon: Tags },
     ],
     [counts],
   );
 
   const scopedProducts = useMemo(() => {
-    if (viewFilter === "pos") return products.filter((product) => product.available_for_sale !== false);
-    if (viewFilter === "hidden") return products.filter((product) => product.available_for_sale === false);
-    if (viewFilter === "production") {
-      return products.filter((product) => product.available_for_sale !== false && isProductionProduct(product));
+    if (viewFilter === "categories") return [];
+    if (viewFilter === "hidden") {
+      return products.filter((product) => product.available_for_sale === false);
     }
-    return products;
+    return products.filter(isSalePointProduct);
   }, [products, viewFilter]);
+
+  const selectedPosCategory = useMemo(
+    () => categories.find((category) => category.id === selectedPosCategoryId),
+    [categories, selectedPosCategoryId],
+  );
 
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    return scopedProducts.filter((product) =>
-      `${product.name} ${product.barcode ?? ""} ${product.default_code ?? ""} ${product.category ?? ""} ${
+    return scopedProducts.filter((product) => {
+      if (!productMatchesPosCategory(product, selectedPosCategory)) return false;
+
+      return `${product.name} ${product.barcode ?? ""} ${product.default_code ?? ""} ${product.category ?? ""} ${
         product.description ?? ""
       }`
         .toLowerCase()
-        .includes(normalizedQuery),
-    );
-  }, [scopedProducts, query]);
+        .includes(normalizedQuery);
+    });
+  }, [scopedProducts, query, selectedPosCategory]);
+
+  function openPosCategoryProducts(category: KassCategory) {
+    setSelectedPosCategoryId(category.id);
+    setViewFilter("all");
+    setQuery("");
+  }
 
   function openCreateModal() {
     setEditingProduct(null);
@@ -682,13 +712,13 @@ export default function ProductsPage() {
       : form.category;
 
   return (
-    <div className="page-stack">
+    <div className={viewFilter === "categories" ? "page-stack products-categories-view" : "page-stack"}>
       <section className="content-panel">
         <div className="panel-toolbar">
           <div>
             <p className="eyebrow">Каталог</p>
             <div className="heading-line">
-              <h2>Бүтээгдэхүүний жагсаалт</h2>
+              <h2>{selectedPosCategory ? `${selectedPosCategory.display_name} ангиллын бараа` : "Бүтээгдэхүүний жагсаалт"}</h2>
               {!loading ? <span className="soft-pill">{filtered.length} илэрц</span> : null}
             </div>
           </div>
@@ -733,7 +763,10 @@ export default function ProductsPage() {
                 key={option.key}
                 className={active ? "filter-tab active" : "filter-tab"}
                 type="button"
-                onClick={() => setViewFilter(option.key)}
+                onClick={() => {
+                  setViewFilter(option.key);
+                  setSelectedPosCategoryId(null);
+                }}
                 data-testid={`product-view-${option.key}`}
               >
                 <Icon size={16} aria-hidden="true" />
@@ -743,6 +776,114 @@ export default function ProductsPage() {
             );
           })}
         </div>
+
+        {viewFilter === "categories" ? (
+          <>
+            <div className="category-card-list">
+              {categoriesLoading ? (
+                Array.from({ length: 3 }).map((_, index) => <div className="row-skeleton" key={index} />)
+              ) : categories.length > 0 ? (
+                categories.map((category) => {
+                  const categoryNames = new Set(
+                    [category.display_name, category.name].filter(Boolean).map((name) => name.trim().toLowerCase()),
+                  );
+                  const productCount = products.filter((product) => {
+                    const productCategory = product.category?.trim().toLowerCase();
+                    const hasPosCategoryName = product.pos_categories?.some((name) =>
+                      categoryNames.has(name.trim().toLowerCase()),
+                    );
+                    return Boolean(productCategory && categoryNames.has(productCategory)) || Boolean(hasPosCategoryName);
+                  }).length;
+
+                  return (
+                    <article
+                      className="category-card"
+                      key={category.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openPosCategoryProducts(category)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") openPosCategoryProducts(category);
+                      }}
+                    >
+                      <div>
+                        <strong>{category.display_name}</strong>
+                        <span>ID: {category.id}</span>
+                      </div>
+                      <div>
+                        <small>Дээд ангилал</small>
+                        <span>{category.parent_name || "Дээд ангилалгүй"}</span>
+                      </div>
+                      <div>
+                        <small>POS бараа</small>
+                        <span>{productCount} бараа</span>
+                      </div>
+                    </article>
+                  );
+                })
+              ) : (
+                <div className="state-box">POS ангилал олдсонгүй.</div>
+              )}
+            </div>
+
+            <div className="table-wrap category-table-wrap">
+              <table className="data-table category-table">
+                <thead>
+                  <tr>
+                    <th>Ангилал</th>
+                    <th>Дээд ангилал</th>
+                    <th>POS бараа</th>
+                    <th>Үйлдэл</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categoriesLoading ? (
+                    Array.from({ length: 3 }).map((_, index) => (
+                      <tr key={index}>
+                        <td colSpan={4}>
+                          <div className="row-skeleton" />
+                        </td>
+                      </tr>
+                    ))
+                  ) : categories.length > 0 ? (
+                    categories.map((category) => {
+                      const categoryNames = new Set(
+                        [category.display_name, category.name].filter(Boolean).map((name) => name.trim().toLowerCase()),
+                      );
+                      const productCount = products.filter((product) => {
+                        const productCategory = product.category?.trim().toLowerCase();
+                        const hasPosCategoryName = product.pos_categories?.some((name) =>
+                          categoryNames.has(name.trim().toLowerCase()),
+                        );
+                        return Boolean(productCategory && categoryNames.has(productCategory)) || Boolean(hasPosCategoryName);
+                      }).length;
+
+                      return (
+                        <tr key={category.id} onClick={() => openPosCategoryProducts(category)}>
+                          <td>
+                            <strong>{category.display_name}</strong>
+                            <small className="table-subtext">ID: {category.id}</small>
+                          </td>
+                          <td>{category.parent_name || "Дээд ангилалгүй"}</td>
+                          <td>
+                            <span className={productCount > 0 ? "soft-pill" : "soft-pill muted-pill"}>
+                              {productCount} бараа
+                            </span>
+                          </td>
+                          <td />
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={4}>POS ангилал олдсонгүй.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : null}
 
         {error ? (
           <div className="state-box error-state">

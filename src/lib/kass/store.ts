@@ -247,6 +247,16 @@ function assertSessionOpenInState(state: KassStoreState, sessionId: string) {
   return session;
 }
 
+function getOpenSessionsFromState(state: KassStoreState) {
+  return Array.from(state.sessions.values())
+    .filter((session) => !session.closed_at)
+    .sort((a, b) => new Date(b.opened_at).getTime() - new Date(a.opened_at).getTime());
+}
+
+function getActiveSessionFromState(state: KassStoreState) {
+  return getOpenSessionsFromState(state)[0] ?? null;
+}
+
 function calculateReport(session: KassSessionRecord, orders: KassOrderRecord[]) {
   const cash_total = orders
     .filter((order) => order.payment_method === "cash")
@@ -262,6 +272,7 @@ function calculateReport(session: KassSessionRecord, orders: KassOrderRecord[]) 
 
   return {
     ...session,
+    status: session.closed_at ? "closed" : "open",
     total_sales,
     cash_total,
     card_total,
@@ -275,6 +286,16 @@ function calculateReport(session: KassSessionRecord, orders: KassOrderRecord[]) 
 
 export function openSession(cashierName: string, openingCash: number) {
   return withLockedState((state) => {
+    const activeSession = getActiveSessionFromState(state);
+
+    if (activeSession) {
+      throw new KassServerError(
+        "session_already_open",
+        `Ээлж аль хэдийн нээгдсэн байна. Нээсэн: ${activeSession.cashier_name}`,
+        409,
+      );
+    }
+
     const session: KassSessionRecord = {
       session_id: nextId("ks"),
       cashier_name: cashierName,
@@ -298,6 +319,15 @@ export function openSession(cashierName: string, openingCash: number) {
 
 export function getSession(sessionId: string) {
   return getSessionFromState(readState(), sessionId);
+}
+
+export function getActiveSession() {
+  const state = readState();
+  const session = getActiveSessionFromState(state);
+
+  if (!session) return null;
+
+  return calculateReport(session, state.orders.get(session.session_id) ?? []);
 }
 
 export function assertSessionOpen(sessionId: string) {

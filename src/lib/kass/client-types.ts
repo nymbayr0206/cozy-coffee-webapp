@@ -56,11 +56,30 @@ export interface UomsResponse {
   uoms: KassUom[];
 }
 
+export interface UomFormRequest {
+  name: string;
+  category_id: number;
+  uom_type?: "reference" | "bigger" | "smaller";
+  factor_inv?: number | null;
+}
+
+export interface UomResponse {
+  uom: KassUom;
+}
+
+export interface UomDeleteResponse {
+  ok: boolean;
+  uom_id: number;
+  archived: boolean;
+}
+
 export interface KassPartner {
   id: number;
   name: string;
   phone?: string | null;
   email?: string | null;
+  company_register?: string | null;
+  bank_account?: string | null;
   supplier_rank?: number;
   customer_rank?: number;
 }
@@ -73,12 +92,20 @@ export interface PartnerFormRequest {
   name: string;
   phone?: string | null;
   email?: string | null;
+  company_register?: string | null;
+  bank_account?: string | null;
   is_supplier?: boolean;
   is_customer?: boolean;
 }
 
 export interface PartnerResponse {
   partner: KassPartner;
+}
+
+export interface PartnerDeleteResponse {
+  ok: boolean;
+  partner_id: number;
+  archived: boolean;
 }
 
 export interface ProductFormRequest {
@@ -306,7 +333,7 @@ export interface SalesReportResponse {
 export interface KassReport {
   session_id?: string;
   cashier_name?: string;
-  status?: string;
+  status?: "open" | "closed" | string;
   opened_at?: string;
   closed_at?: string;
   opening_cash?: number;
@@ -340,6 +367,28 @@ export interface CloseSessionResponse {
   closed_at?: string;
   report?: Partial<KassReport>;
   [key: string]: unknown;
+}
+
+export interface KassSessionEvent {
+  event_id: string;
+  session_id: string;
+  type: "session_opened" | "order_created" | "session_closed" | string;
+  cashier_name?: string;
+  order_id?: string | number;
+  receipt_number?: string;
+  payment_method?: PaymentMethod | "other";
+  amount?: number;
+  opening_cash?: number;
+  closing_cash?: number;
+  expected_cash?: number;
+  cash_difference?: number;
+  created_at: string;
+}
+
+export interface SessionsResponse {
+  sessions: KassReport[];
+  events: KassSessionEvent[];
+  active_session?: KassReport | null;
 }
 
 export interface KassHealthResponse {

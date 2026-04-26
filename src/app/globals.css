@@ -16,6 +16,22 @@
   --shadow: 0 18px 42px rgba(31, 41, 51, 0.1);
 }
 
+.products-categories-view .content-panel > .table-wrap:not(.category-table-wrap),
+.products-categories-view .content-panel > .product-card-list {
+  display: none;
+}
+
+.products-categories-view .category-card,
+.products-categories-view .category-table tbody tr {
+  cursor: pointer;
+}
+
+.uom-form {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  align-items: end;
+  margin-bottom: 16px;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -1870,11 +1886,70 @@ nextjs-portal {
   margin-bottom: 12px;
 }
 
+.partner-table {
+  min-width: 1120px;
+}
+
+.partner-actions {
+  min-width: 88px;
+  flex-wrap: nowrap;
+}
+
+.partner-actions .icon-button {
+  width: 36px;
+  min-height: 36px;
+}
+
+.partner-modal-card {
+  width: min(620px, 100%);
+}
+
 .partner-tags {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.partner-card-list {
+  display: none;
+}
+
+.partner-card {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.partner-card > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.partner-card strong {
+  overflow-wrap: anywhere;
+}
+
+.partner-card span,
+.partner-card-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.partner-card-meta {
+  display: grid;
+  gap: 3px;
+}
+
+.partner-card-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .warehouse-card-list {
@@ -1939,6 +2014,49 @@ nextjs-portal {
 
 .category-card-list {
   display: none;
+}
+
+.session-history-table {
+  min-width: 940px;
+}
+
+.event-list {
+  display: grid;
+  gap: 8px;
+}
+
+.event-row {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.event-row:last-child {
+  border-bottom: 0;
+}
+
+.event-row div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.event-row div:last-child {
+  text-align: right;
+}
+
+.event-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.event-row span {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .category-card {
@@ -2630,6 +2748,15 @@ nextjs-portal {
   }
 
   .category-table-wrap {
+    display: none;
+  }
+
+  .partner-card-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .partner-table-wrap {
     display: none;
   }
 

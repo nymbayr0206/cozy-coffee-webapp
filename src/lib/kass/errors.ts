@@ -15,9 +15,12 @@ export type KassErrorCode =
   | "stock_receive_failed"
   | "qpay_invoice_failed"
   | "qpay_check_failed"
+  | "session_already_open"
   | "session_not_found"
   | "session_closed"
   | "partner_create_failed"
+  | "partner_update_failed"
+  | "partner_delete_failed"
   | "invalid_payment_method"
   | "order_create_failed"
   | "validation_error";

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { jsonError } from "@/lib/kass/errors";
-import { createOdooSaleOrder, linkOdooQpayTransactionToSaleOrder } from "@/lib/kass/odoo";
+import { consumeOdooRecipeStock, createOdooSaleOrder, linkOdooQpayTransactionToSaleOrder } from "@/lib/kass/odoo";
 import { addOrder, assertSessionOpen, nextReceiptNumber } from "@/lib/kass/store";
 import {
   parseOrderLines,
@@ -32,6 +32,7 @@ export async function POST(request: Request) {
 
     assertSessionOpen(sessionId);
 
+    await consumeOdooRecipeStock(lines);
     const odooOrderId = await createOdooSaleOrder(lines, paymentMethod);
     if (qpayTransactionId && typeof odooOrderId === "number") {
       await linkOdooQpayTransactionToSaleOrder(qpayTransactionId, odooOrderId);

@@ -31,6 +31,7 @@ import {
   KassApiError,
   closeKassSession,
   formatMoney,
+  getKassSessions,
   getReadableError,
   getSessionReport,
   loginOdooCashier,
@@ -136,6 +137,41 @@ export function AppShell({ children }: { children: ReactNode }) {
     setCloseResult(null);
   }, [clearStoredSession]);
 
+  const adoptActiveSession = useCallback((activeSession: KassReport | null | undefined) => {
+    const activeSessionId = activeSession?.session_id;
+
+    if (!activeSessionId || activeSession.closed_at) return false;
+
+    const activeCashier = activeSession.cashier_name ?? "Кассир";
+    window.localStorage.setItem(SESSION_ID_KEY, activeSessionId);
+    window.localStorage.setItem(CASHIER_NAME_KEY, activeCashier);
+    setSessionId(activeSessionId);
+    setCashierName(activeCashier);
+    setReport(activeSession);
+    setReportError(null);
+    setSessionModalOpen(false);
+    return true;
+  }, []);
+
+  const syncActiveSession = useCallback(async () => {
+    try {
+      const response = await getKassSessions({ status: "open", limit: 1 });
+      const activeSession = response.active_session ?? response.sessions[0] ?? null;
+
+      if (adoptActiveSession(activeSession)) {
+        return activeSession;
+      }
+
+      if (sessionId) {
+        clearStoredSession();
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  }, [adoptActiveSession, clearStoredSession, sessionId]);
+
   const refreshReport = useCallback(
     async (overrideSessionId?: string) => {
       const activeSessionId = overrideSessionId ?? sessionId;
@@ -146,6 +182,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       try {
         const nextReport = await getSessionReport(activeSessionId);
+        const nextNormalizedReport = normalizeReport(nextReport);
+
+        if (nextNormalizedReport?.closed_at) {
+          clearStoredSession();
+          setReportError("Ээлж хаагдсан байна. Шинэ ээлж нээнэ үү.");
+          return;
+        }
+
         setReport(nextReport);
       } catch (error) {
         if (error instanceof KassApiError && (error.code === "session_not_found" || error.code === "session_closed")) {
@@ -179,6 +223,15 @@ export function AppShell({ children }: { children: ReactNode }) {
     setSessionModalOpen(false);
     setHydrated(true);
   }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+
+    syncActiveSession();
+    const interval = window.setInterval(() => syncActiveSession(), 15000);
+
+    return () => window.clearInterval(interval);
+  }, [hydrated, syncActiveSession]);
 
   useEffect(() => {
     if (isPosRoute) return;
@@ -216,6 +269,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       setLoginModalOpen(false);
       setSessionModalOpen(false);
       setCloseResult(null);
+      await syncActiveSession();
     } catch (error) {
       setLoginError(getReadableError(error));
     } finally {
@@ -254,6 +308,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       setCloseResult(null);
       await refreshReport(nextSessionId);
     } catch (error) {
+      if (error instanceof KassApiError && error.code === "session_already_open") {
+        const activeSession = await syncActiveSession();
+        if (activeSession) {
+          setSessionModalOpen(false);
+          return;
+        }
+      }
+
       setSessionError(getReadableError(error));
     } finally {
       setSessionLoading(false);
@@ -310,9 +372,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       return;
     }
 
+    if (sessionId) return;
+
     setSessionError(null);
     setSessionModalOpen(true);
-  }, [isAuthenticated, isPosRoute]);
+  }, [isAuthenticated, isPosRoute, sessionId]);
 
   const contextValue = useMemo<KassSessionContextValue>(
     () => ({
@@ -377,6 +441,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <SessionSummary
               cashierName={activeCashierName}
               sessionId={sessionId}
+              openedAt={normalizedReport?.opened_at ?? null}
               error={reportError}
               compact
               loggedIn={isAuthenticated}
@@ -419,7 +484,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <span className={sessionId ? "status-dot open" : isAuthenticated ? "status-dot warning" : "status-dot muted"} />
                 <div>
                   <strong>{sessionId ? "Ээлж нээлттэй" : isAuthenticated ? "Ээлж нээгээгүй" : "Нэвтрэх хэрэгтэй"}</strong>
-                  <small>{activeCashierName ?? "Odoo хэрэглэгчээр нэвтэрнэ үү"}</small>
+                  <small>{sessionId ? `Нээсэн: ${activeCashierName ?? "Кассир"}` : activeCashierName ?? "Odoo хэрэглэгчээр нэвтэрнэ үү"}</small>
                 </div>
               </div>
               {!sessionId && isAuthenticated ? (
@@ -428,7 +493,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <span>Нээх</span>
                 </button>
               ) : null}
-              {sessionId ? (
+              {sessionId && isAuthenticated ? (
                 <button
                   className="danger-button"
                   type="button"

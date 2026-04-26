@@ -129,7 +129,7 @@ export default function WarehousePage() {
     setError(null);
 
     try {
-      const response = await getProducts("all");
+      const response = await getProducts("stock");
       setProducts(response.products ?? []);
     } catch (loadError) {
       setError(getReadableError(loadError));

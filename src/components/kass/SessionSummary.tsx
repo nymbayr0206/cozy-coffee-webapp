@@ -5,6 +5,7 @@ import { DoorOpen, Square } from "lucide-react";
 interface SessionSummaryProps {
   cashierName: string | null;
   sessionId: string | null;
+  openedAt?: string | null;
   error?: string | null;
   compact?: boolean;
   loggedIn?: boolean;
@@ -15,6 +16,7 @@ interface SessionSummaryProps {
 export function SessionSummary({
   cashierName,
   sessionId,
+  openedAt,
   error,
   compact,
   loggedIn,
@@ -22,6 +24,14 @@ export function SessionSummary({
   onCloseShift,
 }: SessionSummaryProps) {
   const displayName = cashierName || "Хэрэглэгч сонгоогүй";
+  const openedLabel = openedAt
+    ? new Intl.DateTimeFormat("mn-MN", {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(openedAt))
+    : null;
 
   return (
     <section className={compact ? "session-summary compact shift-control-card" : "session-summary shift-control-card"}>
@@ -36,7 +46,10 @@ export function SessionSummary({
       </div>
 
       {sessionId ? (
-        <p className="muted-text small">Идэвхтэй ээлж: {sessionId.slice(-8)}</p>
+        <p className="muted-text small">
+          Нээсэн: {displayName}
+          {openedLabel ? ` · ${openedLabel}` : ""} · {sessionId.slice(-8)}
+        </p>
       ) : (
         <p className="muted-text small">
           {loggedIn ? "Касс дээр борлуулалт хийхийн өмнө ээлж нээнэ үү." : "Эхлээд Odoo хэрэглэгчээр нэвтэрнэ үү."}
@@ -52,7 +65,7 @@ export function SessionSummary({
             <span>Ээлж нээх</span>
           </button>
         ) : null}
-        {sessionId ? (
+        {sessionId && loggedIn ? (
           <button className="danger-button" type="button" onClick={onCloseShift} data-testid="summary-close-shift">
             <Square size={15} aria-hidden="true" />
             <span>Ээлж хаах</span>
