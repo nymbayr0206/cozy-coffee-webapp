@@ -2,7 +2,7 @@
 
 import { Clock3, RefreshCcw } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useKassSession } from "@/components/kass/AppShell";
 import {
   formatMoney,
@@ -38,7 +38,7 @@ function eventLabel(event: KassSessionEvent) {
   return event.type;
 }
 
-export default function SalesPage() {
+function SalesPageContent() {
   const searchParams = useSearchParams();
   const { sessionId, report, reportLoading, reportError, refreshReport } = useKassSession();
   const selectedSessionId = searchParams.get("session_id");
@@ -283,5 +283,13 @@ export default function SalesPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+export default function SalesPage() {
+  return (
+    <Suspense fallback={<div className="page-stack" data-testid="sales-page-loading">Ээлжийн тайлан уншиж байна.</div>}>
+      <SalesPageContent />
+    </Suspense>
   );
 }
