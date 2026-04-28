@@ -2,6 +2,7 @@ import type {
   CategoriesResponse,
   CloseSessionRequest,
   CloseSessionResponse,
+  CategoryResponse,
   CategoryFormRequest,
   CreateOrderRequest,
   CreateOrderResponse,
@@ -152,8 +153,15 @@ export function getWarehouseCategories() {
 }
 
 export function createProductCategory(body: CategoryFormRequest) {
-  return request<{ category: CategoriesResponse["categories"][number] }>("/categories", {
+  return request<CategoryResponse>("/categories", {
     method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateProductCategory(categoryId: number, body: CategoryFormRequest) {
+  return request<CategoryResponse>(`/categories/${encodeURIComponent(categoryId)}`, {
+    method: "PATCH",
     body: JSON.stringify(body),
   });
 }

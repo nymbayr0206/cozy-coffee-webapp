@@ -133,6 +133,10 @@ export interface CategoryDeleteResponse {
   deleted: boolean;
 }
 
+export interface CategoryResponse {
+  category: KassCategory;
+}
+
 export interface ProductResponse {
   product: KassProduct;
 }

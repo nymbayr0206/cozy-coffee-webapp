@@ -1,12 +1,14 @@
 "use client";
 
 import { Clock3, RefreshCcw } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useKassSession } from "@/components/kass/AppShell";
 import {
   formatMoney,
   getKassSessions,
   getReadableError,
+  getSessionReport,
   paymentMethodLabel,
 } from "@/lib/kass/client-api";
 import type { KassSessionEvent, KassReport } from "@/lib/kass/client-types";
@@ -37,13 +39,23 @@ function eventLabel(event: KassSessionEvent) {
 }
 
 export default function SalesPage() {
+  const searchParams = useSearchParams();
   const { sessionId, report, reportLoading, reportError, refreshReport } = useKassSession();
+  const selectedSessionId = searchParams.get("session_id");
+  const viewingSpecificSession = Boolean(selectedSessionId);
+  const [selectedReport, setSelectedReport] = useState<KassReport | null>(null);
+  const [selectedReportLoading, setSelectedReportLoading] = useState(false);
+  const [selectedReportError, setSelectedReportError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<KassReport[]>([]);
   const [events, setEvents] = useState<KassSessionEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
-  const orders = Array.isArray(report?.orders) ? report.orders : [];
+  const displayReport = viewingSpecificSession ? selectedReport : report;
+  const displayLoading = viewingSpecificSession ? selectedReportLoading : reportLoading;
+  const displayError = viewingSpecificSession ? selectedReportError : reportError;
+  const orders = Array.isArray(displayReport?.orders) ? displayReport.orders : [];
   const activeSession = sessions.find((session) => !session.closed_at);
+  const headingSession = viewingSpecificSession ? selectedReport : activeSession;
 
   async function loadSessionHistory() {
     setHistoryLoading(true);
@@ -63,12 +75,40 @@ export default function SalesPage() {
   }
 
   async function refreshAll() {
-    await Promise.all([refreshReport(), loadSessionHistory()]);
+    await Promise.all([viewingSpecificSession ? loadSelectedReport() : refreshReport(), loadSessionHistory()]);
+  }
+
+  async function loadSelectedReport() {
+    if (!selectedSessionId) return;
+
+    setSelectedReportLoading(true);
+    setSelectedReportError(null);
+
+    try {
+      const response = await getSessionReport(selectedSessionId);
+      setSelectedReport(response);
+    } catch (error) {
+      setSelectedReportError(getReadableError(error));
+      setSelectedReport(null);
+    } finally {
+      setSelectedReportLoading(false);
+    }
   }
 
   useEffect(() => {
     loadSessionHistory();
   }, []);
+
+  useEffect(() => {
+    if (!selectedSessionId) {
+      setSelectedReport(null);
+      setSelectedReportError(null);
+      return;
+    }
+
+    loadSelectedReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSessionId]);
 
   return (
     <div className="page-stack" data-testid="sales-page">
@@ -76,49 +116,52 @@ export default function SalesPage() {
         <div className="panel-toolbar">
           <div>
             <p className="eyebrow">Борлуулалт</p>
-            <h2>Одоогийн ээлжийн тайлан</h2>
-            {activeSession ? (
+            <h2>{viewingSpecificSession ? "Ээлжийн тайлан" : "Одоогийн ээлжийн тайлан"}</h2>
+            {headingSession ? (
               <p className="muted-text small">
-                Нээсэн: {activeSession.cashier_name ?? "Кассир"} · {formatDateTime(activeSession.opened_at)}
+                Нээсэн: {headingSession.cashier_name ?? "Кассир"} · {formatDateTime(headingSession.opened_at)}
+                {headingSession.closed_at ? ` · Хаасан: ${formatDateTime(headingSession.closed_at)}` : ""}
               </p>
             ) : (
-              <p className="muted-text small">Одоогоор нээлттэй ээлж алга.</p>
+              <p className="muted-text small">
+                {viewingSpecificSession ? "Ээлжийн тайлан уншиж байна." : "Одоогоор нээлттэй ээлж алга."}
+              </p>
             )}
           </div>
           <button
             className="secondary-button"
             type="button"
             onClick={refreshAll}
-            disabled={reportLoading || historyLoading}
+            disabled={displayLoading || historyLoading}
           >
             <RefreshCcw size={16} aria-hidden="true" />
-            <span>{reportLoading || historyLoading ? "Уншиж байна" : "Шинэчлэх"}</span>
+            <span>{displayLoading || historyLoading ? "Уншиж байна" : "Шинэчлэх"}</span>
           </button>
         </div>
 
-        {reportError ? <div className="inline-error">{reportError}</div> : null}
+        {displayError ? <div className="inline-error">{displayError}</div> : null}
         {historyError ? <div className="inline-error">{historyError}</div> : null}
 
         <div className="summary-grid sales-summary">
           <div className="metric">
             <span>Нийт борлуулалт</span>
-            <strong>{formatMoney(report?.total_sales)}</strong>
+            <strong>{formatMoney(displayReport?.total_sales)}</strong>
           </div>
           <div className="metric">
             <span>Бэлэн мөнгө</span>
-            <strong>{formatMoney(report?.cash_total)}</strong>
+            <strong>{formatMoney(displayReport?.cash_total)}</strong>
           </div>
           <div className="metric">
             <span>Карт</span>
-            <strong>{formatMoney(report?.card_total)}</strong>
+            <strong>{formatMoney(displayReport?.card_total)}</strong>
           </div>
           <div className="metric">
             <span>QPay</span>
-            <strong>{formatMoney(report?.qpay_total)}</strong>
+            <strong>{formatMoney(displayReport?.qpay_total)}</strong>
           </div>
           <div className="metric">
             <span>Захиалга</span>
-            <strong>{Number(report?.orders_count ?? 0)}</strong>
+            <strong>{Number(displayReport?.orders_count ?? 0)}</strong>
           </div>
         </div>
 
@@ -147,7 +190,13 @@ export default function SalesPage() {
               ) : (
                 <tr>
                   <td colSpan={5}>
-                    {sessionId ? "Энэ ээлж дээр борлуулалт бүртгэгдээгүй байна." : "Ээлж нээгдээгүй байна."}
+                    {displayLoading
+                      ? "Ээлжийн тайлан уншиж байна."
+                      : viewingSpecificSession
+                        ? "Энэ ээлж дээр борлуулалт бүртгэгдээгүй байна."
+                        : sessionId
+                          ? "Энэ ээлж дээр борлуулалт бүртгэгдээгүй байна."
+                          : "Ээлж нээгдээгүй байна."}
                   </td>
                 </tr>
               )}

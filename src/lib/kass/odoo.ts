@@ -1183,6 +1183,73 @@ export async function createOdooProductCategory(input: { name: string; scope?: "
   }
 }
 
+export async function updateOdooProductCategory(
+  categoryId: number,
+  input: { name: string; scope?: "pos" | "warehouse" },
+) {
+  if (!Number.isInteger(categoryId) || categoryId <= 0) {
+    throw new KassServerError("validation_error", "category id буруу байна.", 400);
+  }
+
+  const name = cleanOptionalText(input.name);
+  if (!name) {
+    throw new KassServerError("validation_error", "Ангиллын нэр оруулна уу.", 400);
+  }
+
+  const config = getOdooConfig();
+  const uid = await authenticate(config);
+  const modules = await getModuleStates(config, uid);
+
+  try {
+    if (input.scope === "warehouse") {
+      assertModuleInstalled(modules, "product");
+      const categoryFields = await getFieldNames(config, uid, "product.category");
+      const existing = await executeKw<OdooCategoryRecord[]>(config, uid, "product.category", "read", [
+        [categoryId],
+        ["id", "name"].filter((field) => categoryFields.has(field)),
+      ]);
+
+      if (!existing[0]) {
+        throw new KassServerError("validation_error", "Ангилал олдсонгүй.", 404);
+      }
+
+      await executeKw<boolean>(config, uid, "product.category", "write", [[categoryId], { name }]);
+      const fields = ["id", "name", "display_name", "complete_name", "parent_id"].filter((field) =>
+        categoryFields.has(field),
+      );
+      const records = await executeKw<OdooCategoryRecord[]>(config, uid, "product.category", "read", [
+        [categoryId],
+        fields,
+      ]);
+      return normalizePosCategory(records[0]);
+    }
+
+    assertModuleInstalled(modules, "point_of_sale");
+    const categoryFields = await getFieldNames(config, uid, "pos.category");
+    const existing = await executeKw<OdooCategoryRecord[]>(config, uid, "pos.category", "read", [
+      [categoryId],
+      ["id", "name"].filter((field) => categoryFields.has(field)),
+    ]);
+
+    if (!existing[0]) {
+      throw new KassServerError("validation_error", "Ангилал олдсонгүй.", 404);
+    }
+
+    await executeKw<boolean>(config, uid, "pos.category", "write", [[categoryId], { name }]);
+    const fields = ["id", "name", "display_name", "complete_name", "parent_id"].filter((field) =>
+      categoryFields.has(field),
+    );
+    const records = await executeKw<OdooCategoryRecord[]>(config, uid, "pos.category", "read", [
+      [categoryId],
+      fields,
+    ]);
+    return normalizePosCategory(records[0]);
+  } catch (error) {
+    if (error instanceof KassServerError) throw error;
+    throw new KassServerError("category_update_failed", "Odoo дээр ангилал засахад алдаа гарлаа.", 502);
+  }
+}
+
 export async function deleteOdooProductCategory(categoryId: number, scope: "pos" | "warehouse" = "warehouse") {
   if (!Number.isInteger(categoryId) || categoryId <= 0) {
     throw new KassServerError("validation_error", "category id буруу байна.", 400);

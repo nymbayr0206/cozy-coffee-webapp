@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { jsonError, KassServerError } from "@/lib/kass/errors";
-import { deleteOdooProductCategory } from "@/lib/kass/odoo";
+import { deleteOdooProductCategory, updateOdooProductCategory } from "@/lib/kass/odoo";
+import { readJsonBody, requireString } from "@/lib/kass/validation";
 
 export const runtime = "nodejs";
 
@@ -19,6 +20,25 @@ async function readCategoryId(context: CategoryParams) {
   }
 
   return categoryId;
+}
+
+interface UpdateCategoryBody {
+  name?: unknown;
+  scope?: unknown;
+}
+
+export async function PATCH(request: Request, context: CategoryParams) {
+  try {
+    const categoryId = await readCategoryId(context);
+    const body = await readJsonBody<UpdateCategoryBody>(request);
+    const name = requireString(body.name, "name");
+    const scope = body.scope === "warehouse" ? "warehouse" : "pos";
+    const category = await updateOdooProductCategory(categoryId, { name, scope });
+
+    return NextResponse.json({ category });
+  } catch (error) {
+    return jsonError(error);
+  }
 }
 
 export async function DELETE(request: Request, context: CategoryParams) {

@@ -10,6 +10,7 @@ export type KassErrorCode =
   | "product_update_failed"
   | "product_delete_failed"
   | "category_create_failed"
+  | "category_update_failed"
   | "category_delete_failed"
   | "stock_location_not_found"
   | "stock_receive_failed"

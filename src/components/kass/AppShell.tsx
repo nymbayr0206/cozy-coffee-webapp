@@ -346,10 +346,16 @@ export function AppShell({ children }: { children: ReactNode }) {
 
     setCloseLoading(true);
     setCloseError(null);
+    const closingSessionId = sessionId;
+    const reportTab = window.open("", "_blank");
+    if (reportTab) {
+      reportTab.document.title = "Ээлжийн тайлан";
+      reportTab.document.body.innerHTML = "<p style=\"font-family: sans-serif; padding: 24px;\">Ээлжийн тайлан бэлдэж байна...</p>";
+    }
 
     try {
       const response = await closeKassSession({
-        session_id: sessionId,
+        session_id: closingSessionId,
         closing_cash: cash,
       });
 
@@ -357,7 +363,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       setCloseModalOpen(false);
       setClosingCash("");
       clearStoredSession();
+      if (reportTab) {
+        reportTab.location.href = `/sales?session_id=${encodeURIComponent(closingSessionId)}`;
+      }
     } catch (error) {
+      if (reportTab) reportTab.close();
       setCloseError(getReadableError(error));
     } finally {
       setCloseLoading(false);

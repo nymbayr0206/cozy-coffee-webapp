@@ -22,6 +22,7 @@ import {
 import {
   createProductCategory,
   createKassProduct,
+  deleteProductCategory,
   deleteKassProduct,
   formatMoney,
   formatUnitName,
@@ -33,6 +34,7 @@ import {
   getReadableError,
   receiveKassProductStock,
   updateKassProduct,
+  updateProductCategory,
   updateProductRecipe,
 } from "@/lib/kass/client-api";
 import type { KassCategory, KassPartner, KassProduct, KassUom, ProductFormRequest } from "@/lib/kass/client-types";
@@ -185,8 +187,10 @@ export default function ProductsPage() {
   const [recipeError, setRecipeError] = useState<string | null>(null);
   const [recipeDirty, setRecipeDirty] = useState(false);
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<KassCategory | null>(null);
   const [categoryForm, setCategoryForm] = useState(emptyCategoryForm);
   const [categorySaving, setCategorySaving] = useState(false);
+  const [categoryDeletingId, setCategoryDeletingId] = useState<number | null>(null);
   const [categoryFormError, setCategoryFormError] = useState<string | null>(null);
 
   async function loadProducts() {
@@ -360,7 +364,15 @@ export default function ProductsPage() {
   }
 
   function openCategoryModal() {
+    setEditingCategory(null);
     setCategoryForm(emptyCategoryForm);
+    setCategoryFormError(null);
+    setCategoryModalOpen(true);
+  }
+
+  function openEditCategoryModal(category: KassCategory) {
+    setEditingCategory(category);
+    setCategoryForm({ name: category.name || category.display_name });
     setCategoryFormError(null);
     setCategoryModalOpen(true);
   }
@@ -464,9 +476,16 @@ export default function ProductsPage() {
     setCategoryFormError(null);
 
     try {
-      const response = await createProductCategory({ name, scope: "pos" });
+      const response = editingCategory
+        ? await updateProductCategory(editingCategory.id, { name, scope: "pos" })
+        : await createProductCategory({ name, scope: "pos" });
       setCategories((current) => {
         const exists = current.some((category) => category.id === response.category.id);
+        if (editingCategory) {
+          return current
+            .map((category) => (category.id === response.category.id ? response.category : category))
+            .sort((a, b) => a.display_name.localeCompare(b.display_name, "mn"));
+        }
         return exists
           ? current
           : [...current, response.category].sort((a, b) => a.display_name.localeCompare(b.display_name, "mn"));
@@ -474,11 +493,44 @@ export default function ProductsPage() {
       setForm((current) => ({ ...current, category: response.category.display_name }));
       setCustomCategoryMode(false);
       setCategoryModalOpen(false);
+      setEditingCategory(null);
       setCategoryForm(emptyCategoryForm);
+      await loadProducts();
     } catch (saveError) {
       setCategoryFormError(getReadableError(saveError));
     } finally {
       setCategorySaving(false);
+    }
+  }
+
+  async function handleCategoryDelete(category: KassCategory, productCount: number) {
+    if (productCount > 0) {
+      setCategoryError("Энэ ангилалд бараа оноогдсон байна. Эхлээд бараануудын ангиллыг солино уу.");
+      return;
+    }
+
+    const ok = window.confirm(`${category.display_name} ангиллыг устгах уу?`);
+    if (!ok) return;
+
+    setCategoryDeletingId(category.id);
+    setCategoryError(null);
+
+    try {
+      await deleteProductCategory(category.id, "pos");
+      setCategories((current) => current.filter((item) => item.id !== category.id));
+      if (selectedPosCategoryId === category.id) {
+        setSelectedPosCategoryId(null);
+      }
+      if (editingCategory?.id === category.id) {
+        setCategoryModalOpen(false);
+        setEditingCategory(null);
+        setCategoryForm(emptyCategoryForm);
+      }
+      await loadProducts();
+    } catch (deleteError) {
+      setCategoryError(getReadableError(deleteError));
+    } finally {
+      setCategoryDeletingId(null);
     }
   }
 
@@ -779,6 +831,7 @@ export default function ProductsPage() {
 
         {viewFilter === "categories" ? (
           <>
+            {categoryError ? <div className="state-box error-state">{categoryError}</div> : null}
             <div className="category-card-list">
               {categoriesLoading ? (
                 Array.from({ length: 3 }).map((_, index) => <div className="row-skeleton" key={index} />)
@@ -789,10 +842,11 @@ export default function ProductsPage() {
                   );
                   const productCount = products.filter((product) => {
                     const productCategory = product.category?.trim().toLowerCase();
+                    const hasPosCategoryId = product.pos_category_ids?.includes(category.id);
                     const hasPosCategoryName = product.pos_categories?.some((name) =>
                       categoryNames.has(name.trim().toLowerCase()),
                     );
-                    return Boolean(productCategory && categoryNames.has(productCategory)) || Boolean(hasPosCategoryName);
+                    return Boolean(hasPosCategoryId || (productCategory && categoryNames.has(productCategory)) || hasPosCategoryName);
                   }).length;
 
                   return (
@@ -817,6 +871,32 @@ export default function ProductsPage() {
                       <div>
                         <small>POS бараа</small>
                         <span>{productCount} бараа</span>
+                      </div>
+                      <div className="category-card-actions">
+                        <button
+                          className="icon-button"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openEditCategoryModal(category);
+                          }}
+                          aria-label="Ангилал засах"
+                        >
+                          <Edit3 size={16} aria-hidden="true" />
+                        </button>
+                        <button
+                          className="icon-button danger"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleCategoryDelete(category, productCount);
+                          }}
+                          disabled={categoryDeletingId === category.id || productCount > 0}
+                          aria-label="Ангилал устгах"
+                          title={productCount > 0 ? "Эхлээд энэ ангиллын бараануудыг өөр ангилал руу шилжүүлнэ үү" : undefined}
+                        >
+                          <Trash2 size={16} aria-hidden="true" />
+                        </button>
                       </div>
                     </article>
                   );
@@ -852,10 +932,11 @@ export default function ProductsPage() {
                       );
                       const productCount = products.filter((product) => {
                         const productCategory = product.category?.trim().toLowerCase();
+                        const hasPosCategoryId = product.pos_category_ids?.includes(category.id);
                         const hasPosCategoryName = product.pos_categories?.some((name) =>
                           categoryNames.has(name.trim().toLowerCase()),
                         );
-                        return Boolean(productCategory && categoryNames.has(productCategory)) || Boolean(hasPosCategoryName);
+                        return Boolean(hasPosCategoryId || (productCategory && categoryNames.has(productCategory)) || hasPosCategoryName);
                       }).length;
 
                       return (
@@ -870,7 +951,34 @@ export default function ProductsPage() {
                               {productCount} бараа
                             </span>
                           </td>
-                          <td />
+                          <td>
+                            <div className="table-actions category-row-actions">
+                              <button
+                                className="icon-button"
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openEditCategoryModal(category);
+                                }}
+                                aria-label="Ангилал засах"
+                              >
+                                <Edit3 size={16} aria-hidden="true" />
+                              </button>
+                              <button
+                                className="icon-button danger"
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleCategoryDelete(category, productCount);
+                                }}
+                                disabled={categoryDeletingId === category.id || productCount > 0}
+                                aria-label="Ангилал устгах"
+                                title={productCount > 0 ? "Эхлээд энэ ангиллын бараануудыг өөр ангилал руу шилжүүлнэ үү" : undefined}
+                              >
+                                <Trash2 size={16} aria-hidden="true" />
+                              </button>
+                            </div>
+                          </td>
                         </tr>
                       );
                     })
@@ -988,13 +1096,16 @@ export default function ProductsPage() {
               className="icon-button modal-close"
               type="button"
               aria-label="Хаах"
-              onClick={() => setCategoryModalOpen(false)}
+              onClick={() => {
+                setCategoryModalOpen(false);
+                setEditingCategory(null);
+              }}
               disabled={categorySaving}
             >
               <X size={18} aria-hidden="true" />
             </button>
             <p className="eyebrow">Бүтээгдэхүүний ангилал</p>
-            <h2 id="product-category-title">Ангилал нэмэх</h2>
+            <h2 id="product-category-title">{editingCategory ? "Ангилал засах" : "Ангилал нэмэх"}</h2>
             <label className="field">
               <span>Ангиллын нэр</span>
               <input
@@ -1007,7 +1118,15 @@ export default function ProductsPage() {
             </label>
             {categoryFormError ? <div className="form-error">{categoryFormError}</div> : null}
             <div className="modal-actions">
-              <button className="secondary-button" type="button" onClick={() => setCategoryModalOpen(false)} disabled={categorySaving}>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  setCategoryModalOpen(false);
+                  setEditingCategory(null);
+                }}
+                disabled={categorySaving}
+              >
                 Болих
               </button>
               <button className="primary-button" type="submit" disabled={categorySaving}>

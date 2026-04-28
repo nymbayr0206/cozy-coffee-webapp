@@ -2085,6 +2085,18 @@ nextjs-portal {
   font-size: 12px;
 }
 
+.category-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.category-card-actions .icon-button,
+.category-row-actions .icon-button {
+  width: 36px;
+  min-height: 36px;
+}
+
 .strong-metric {
   background: #f2edf1;
   border-color: #e6dce4;
