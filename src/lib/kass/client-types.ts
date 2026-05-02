@@ -1,4 +1,10 @@
 export type PaymentMethod = "cash" | "card" | "qpay";
+export type OrderPaymentMethod = PaymentMethod | "mixed";
+
+export interface PaymentPart {
+  method: PaymentMethod;
+  amount: number;
+}
 
 export interface KassApiErrorShape {
   error?: {
@@ -257,7 +263,8 @@ export interface OrderLineRequest {
 
 export interface CreateOrderRequest {
   session_id: string;
-  payment_method: PaymentMethod;
+  payment_method?: OrderPaymentMethod;
+  payments?: PaymentPart[];
   lines: OrderLineRequest[];
   qpay_transaction_id?: number | null;
 }
@@ -265,14 +272,16 @@ export interface CreateOrderRequest {
 export interface CreateOrderResponse {
   order_id?: string | number;
   receipt_number?: string;
-  payment_method?: PaymentMethod;
+  payment_method?: OrderPaymentMethod;
+  payment_parts?: PaymentPart[];
   total?: number;
   order?: {
     id?: string | number;
     order_id?: string | number;
     receipt_number?: string;
     total?: number;
-    payment_method?: PaymentMethod;
+    payment_method?: OrderPaymentMethod;
+    payment_parts?: PaymentPart[];
   };
   [key: string]: unknown;
 }
@@ -280,6 +289,7 @@ export interface CreateOrderResponse {
 export interface QpayInvoiceRequest {
   session_id: string;
   lines: OrderLineRequest[];
+  amount?: number;
 }
 
 export interface QpayInvoiceResponse {
@@ -311,7 +321,8 @@ export interface QpayCheckResponse {
 export interface KassOrderSummary {
   order_id?: string | number;
   receipt_number?: string;
-  payment_method?: PaymentMethod | "other";
+  payment_method?: OrderPaymentMethod | "other";
+  payment_parts?: PaymentPart[];
   total?: number;
   created_at?: string;
   date?: string;
@@ -380,7 +391,8 @@ export interface KassSessionEvent {
   cashier_name?: string;
   order_id?: string | number;
   receipt_number?: string;
-  payment_method?: PaymentMethod | "other";
+  payment_method?: OrderPaymentMethod | "other";
+  payment_parts?: PaymentPart[];
   amount?: number;
   opening_cash?: number;
   closing_cash?: number;
@@ -416,6 +428,7 @@ export interface ReceiptData {
   order: CreateOrderResponse;
   lines: CartItem[];
   total: number;
-  paymentMethod: PaymentMethod;
+  paymentMethod: OrderPaymentMethod;
+  payments: PaymentPart[];
   paidAt: string;
 }

@@ -1,4 +1,5 @@
 import { KassServerError } from "./errors";
+import type { PaymentPart } from "./client-types";
 
 interface OdooConfig {
   url: string;
@@ -2109,14 +2110,16 @@ async function receiveStockWithPartner(
 
   const moveFields = await getFieldNames(config, uid, "stock.move");
   const moveValues: Record<string, unknown> = {
-    name: product.display_name ?? product.name ?? `Product ${productId}`,
     product_id: productId,
     product_uom_qty: input.quantity,
     product_uom: uomId,
     location_id: sourceLocationId,
     location_dest_id: destinationLocationId,
   };
+  const productName = product.display_name ?? product.name ?? `Product ${productId}`;
 
+  if (moveFields.has("name")) moveValues.name = productName;
+  if (moveFields.has("description_picking")) moveValues.description_picking = productName;
   if (moveFields.has("quantity")) moveValues.quantity = input.quantity;
   if (moveFields.has("price_unit") && Number(input.unit_cost ?? 0) > 0) moveValues.price_unit = input.unit_cost;
 
@@ -2157,6 +2160,7 @@ async function receiveStockWithPartner(
     };
 
     if (moveLineFields.has("quantity")) lineValues.quantity = input.quantity;
+    if (moveLineFields.has("qty_done")) lineValues.qty_done = input.quantity;
 
     const existingLines = await executeKw<Array<{ id: number }>>(
       config,
@@ -2254,10 +2258,46 @@ function formatOdooDateTime(value: string) {
 
 function parseKassPaymentMethod(note: string | false | undefined) {
   const value = typeof note === "string" ? note.toLowerCase() : "";
+  if (value.includes("payment method: mixed")) return "mixed";
   if (value.includes("payment method: cash")) return "cash";
   if (value.includes("payment method: card")) return "card";
   if (value.includes("payment method: qpay")) return "qpay";
   return "other";
+}
+
+function parseKassPaymentParts(note: string | false | undefined, total: number): PaymentPart[] {
+  const value = typeof note === "string" ? note : "";
+  const match = value.match(/kass payment parts:\s*([^<\n\r]+)/i);
+
+  if (match) {
+    const parts = match[1]
+      .split(/[;,]/)
+      .map((part) => part.trim().match(/^(cash|card|qpay)\s*=\s*([0-9]+(?:\.[0-9]+)?)/i))
+      .filter((part): part is RegExpMatchArray => Boolean(part))
+      .map((part) => ({
+        method: part[1].toLowerCase() as PaymentPart["method"],
+        amount: Number(part[2]),
+      }))
+      .filter((part) => Number.isFinite(part.amount) && part.amount > 0);
+
+    if (parts.length > 0) return parts;
+  }
+
+  const paymentMethod = parseKassPaymentMethod(note);
+  if (paymentMethod === "cash" || paymentMethod === "card" || paymentMethod === "qpay") {
+    return [{ method: paymentMethod, amount: total }];
+  }
+
+  return [];
+}
+
+function paymentPartsMethod(parts: PaymentPart[]) {
+  return parts.length === 1 ? parts[0].method : parts.length > 1 ? "mixed" : "other";
+}
+
+function formatPaymentNote(paymentMethod: string, payments: PaymentPart[]) {
+  const paymentParts = payments.map((payment) => `${payment.method}=${payment.amount}`).join("; ");
+  return `Kass payment method: ${paymentMethod}\nKass payment parts: ${paymentParts}`;
 }
 
 function normalizeOdooDateTime(value: string | false | undefined) {
@@ -2302,13 +2342,16 @@ export async function getOdooSalesReport(startIso: string, endIso: string) {
   );
 
   const orders = records.map((record) => {
-    const paymentMethod = parseKassPaymentMethod(record.note);
+    const total = Number(record.amount_total ?? 0);
+    const paymentParts = parseKassPaymentParts(record.note, total);
+    const paymentMethod = paymentPartsMethod(paymentParts);
 
     return {
       order_id: record.id,
       receipt_number: record.name ?? `SO-${record.id}`,
       payment_method: paymentMethod,
-      total: Number(record.amount_total ?? 0),
+      payment_parts: paymentParts,
+      total,
       created_at: normalizeOdooDateTime(record.date_order),
       state: record.state || null,
     };
@@ -2318,10 +2361,21 @@ export async function getOdooSalesReport(startIso: string, endIso: string) {
     (sum, order) => {
       sum.total_sales += order.total;
       sum.orders_count += 1;
-      if (order.payment_method === "cash") sum.cash_total += order.total;
-      else if (order.payment_method === "card") sum.card_total += order.total;
-      else if (order.payment_method === "qpay") sum.qpay_total += order.total;
-      else sum.other_total += order.total;
+      const cashAmount = order.payment_parts
+        .filter((payment) => payment.method === "cash")
+        .reduce((total, payment) => total + payment.amount, 0);
+      const cardAmount = order.payment_parts
+        .filter((payment) => payment.method === "card")
+        .reduce((total, payment) => total + payment.amount, 0);
+      const qpayAmount = order.payment_parts
+        .filter((payment) => payment.method === "qpay")
+        .reduce((total, payment) => total + payment.amount, 0);
+      const knownTotal = cashAmount + cardAmount + qpayAmount;
+
+      sum.cash_total += cashAmount;
+      sum.card_total += cardAmount;
+      sum.qpay_total += qpayAmount;
+      sum.other_total += Math.max(0, order.total - knownTotal);
       return sum;
     },
     {
@@ -2427,7 +2481,10 @@ async function readQpayTransaction(config: OdooConfig, uid: number, transactionI
   };
 }
 
-export async function createOdooQpayInvoice(lines: Array<{ product_id: number; quantity: number; price: number }>) {
+export async function createOdooQpayInvoice(
+  lines: Array<{ product_id: number; quantity: number; price: number }>,
+  amountOverride?: number,
+) {
   const config = getOdooConfig();
   const uid = await authenticate(config);
   const modules = await getModuleStates(config, uid);
@@ -2441,7 +2498,7 @@ export async function createOdooQpayInvoice(lines: Array<{ product_id: number; q
       lines.map((line) => line.product_id),
     );
 
-    const amount = lines.reduce((sum, line) => sum + line.quantity * line.price, 0);
+    const amount = amountOverride ?? lines.reduce((sum, line) => sum + line.quantity * line.price, 0);
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new KassServerError("validation_error", "QPay төлбөрийн дүн 0-ээс их байх ёстой.", 400);
     }
@@ -2517,6 +2574,7 @@ export async function linkOdooQpayTransactionToSaleOrder(transactionId: number, 
 export async function createOdooSaleOrder(
   lines: Array<{ product_id: number; quantity: number; price: number }>,
   paymentMethod: string,
+  payments: PaymentPart[],
 ) {
   const config = getOdooConfig();
   const uid = await authenticate(config);
@@ -2534,7 +2592,7 @@ export async function createOdooSaleOrder(
     const orderId = await executeKw<number>(config, uid, "sale.order", "create", [
       {
         partner_id: config.defaultPartnerId,
-        note: `Kass payment method: ${paymentMethod}`,
+        note: formatPaymentNote(paymentMethod, payments),
         order_line: lines.map((line) => [
           0,
           0,

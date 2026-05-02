@@ -6,6 +6,7 @@ import {
   QrCode,
   ReceiptText,
   RefreshCw,
+  Split,
   Wallet,
   X,
   type LucideIcon,
@@ -21,6 +22,8 @@ import {
 } from "@/lib/kass/client-api";
 import type {
   CartItem,
+  OrderPaymentMethod,
+  PaymentPart,
   PaymentMethod,
   QpayInvoiceResponse,
   ReceiptData,
@@ -35,18 +38,23 @@ interface PaymentModalProps {
 }
 
 const paymentOptions: Array<{
-  method: PaymentMethod;
+  method: PaymentMethod | "split";
   label: string;
   icon: LucideIcon;
 }> = [
   { method: "qpay", label: "QPay", icon: QrCode },
   { method: "card", label: "Карт", icon: CreditCard },
   { method: "cash", label: "Бэлэн мөнгө", icon: Wallet },
+  { method: "split", label: "Хуваах", icon: Split },
 ];
 
 export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess }: PaymentModalProps) {
-  const [method, setMethod] = useState<PaymentMethod>("qpay");
+  const [method, setMethod] = useState<PaymentMethod | "split">("qpay");
   const [cashReceived, setCashReceived] = useState("");
+  const [splitCashAmount, setSplitCashAmount] = useState("");
+  const [splitCardAmount, setSplitCardAmount] = useState("");
+  const [splitQpayAmount, setSplitQpayAmount] = useState("");
+  const [splitCardConfirmed, setSplitCardConfirmed] = useState(false);
   const [mockSuccess, setMockSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,26 +75,55 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     [lines],
   );
   const total = useMemo(() => lines.reduce((sum, item) => sum + item.price * item.quantity, 0), [lines]);
-  const qpayRequestKey = useMemo(
+  const qpayRequestKeyBase = useMemo(
     () => `${sessionId ?? "no-session"}:${orderLines.map((line) => `${line.product_id}:${line.quantity}:${line.price}`).join("|")}`,
     [orderLines, sessionId],
   );
   const received = Number(cashReceived || 0);
   const change = Math.max(0, received - total);
   const cashReady = method !== "cash" || received >= total;
+  const splitCash = Number(splitCashAmount || 0);
+  const splitCard = Number(splitCardAmount || 0);
+  const splitQpay = Number(splitQpayAmount || 0);
+  const splitTotal = splitCash + splitCard + splitQpay;
+  const splitRemaining = total - splitTotal;
+  const splitMatchesTotal = Math.abs(splitRemaining) <= 0.01;
+  const splitAmountsValid = [splitCash, splitCard, splitQpay].every((amount) => Number.isFinite(amount) && amount >= 0);
+  const splitPayments = useMemo(
+    () =>
+      [
+        { method: "cash", amount: splitCash },
+        { method: "card", amount: splitCard },
+        { method: "qpay", amount: splitQpay },
+      ].filter((payment): payment is PaymentPart => payment.amount > 0 && Number.isFinite(payment.amount)),
+    [splitCard, splitCash, splitQpay],
+  );
+  const splitReady =
+    method !== "split" ||
+    (splitAmountsValid &&
+      splitMatchesTotal &&
+      splitPayments.length > 0 &&
+      (splitCard <= 0 || splitCardConfirmed) &&
+      (splitQpay <= 0 || (qpayInvoice?.amount === splitQpay && qpayPaid)));
 
   const generateQpayInvoice = useCallback(
-    async (force = false) => {
+    async (force = false, amount = total) => {
       if (!sessionId) {
         setError("Ээлж нээгдээгүй байна.");
         return;
       }
 
       if (orderLines.length === 0 || total <= 0) {
-      setError("QPay QR үүсгэхийн өмнө сагсанд бүтээгдэхүүн нэмнэ үү.");
+        setError("QPay QR үүсгэхийн өмнө сагсанд бүтээгдэхүүн нэмнэ үү.");
         return;
       }
 
+      if (!Number.isFinite(amount) || amount <= 0) {
+        setError("QPay төлбөрийн дүн 0-ээс их байх ёстой.");
+        return;
+      }
+
+      const qpayRequestKey = `${qpayRequestKeyBase}:${amount}`;
       if (!force && qpayRequestKeyRef.current === qpayRequestKey) return;
 
       qpayRequestKeyRef.current = qpayRequestKey;
@@ -99,6 +136,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
         const invoice = await createQpayInvoice({
           session_id: sessionId,
           lines: orderLines,
+          amount,
         });
 
         setQpayInvoice(invoice);
@@ -112,13 +150,17 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
         setQpayLoading(false);
       }
     },
-    [orderLines, qpayRequestKey, sessionId, total],
+    [orderLines, qpayRequestKeyBase, sessionId, total],
   );
 
   useEffect(() => {
     if (!open) return;
     setMethod("qpay");
     setCashReceived("");
+    setSplitCashAmount("");
+    setSplitCardAmount("");
+    setSplitQpayAmount("");
+    setSplitCardConfirmed(false);
     setMockSuccess(false);
     setSubmitting(false);
     setError(null);
@@ -135,15 +177,24 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     void generateQpayInvoice();
   }, [generateQpayInvoice, method, open, qpayInvoice]);
 
+  useEffect(() => {
+    if (!open || method !== "split") return;
+    setQpayInvoice(null);
+    setQpayPaid(false);
+    setQpayNotice(null);
+    qpayRequestKeyRef.current = null;
+  }, [method, open, splitQpayAmount]);
+
   if (!open) return null;
 
-  async function submitOrder(nextMethod: PaymentMethod) {
+  async function submitOrder(nextMethod: OrderPaymentMethod, payments: PaymentPart[]) {
     if (!sessionId) {
       setError("Ээлж нээгдээгүй байна.");
       return;
     }
 
-    if (nextMethod === "qpay" && (!qpayInvoice || !qpayPaid)) {
+    const qpayPayment = payments.find((payment) => payment.method === "qpay");
+    if (qpayPayment && (!qpayInvoice || !qpayPaid || qpayInvoice.amount !== qpayPayment.amount)) {
       setError("QPay төлбөр төлөгдсөн эсэхийг эхлээд шалгана уу.");
       return;
     }
@@ -155,8 +206,9 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
       const order = await createKassOrder({
         session_id: sessionId,
         payment_method: nextMethod,
+        payments,
         lines: orderLines,
-        qpay_transaction_id: nextMethod === "qpay" ? qpayInvoice?.transaction_id ?? null : null,
+        qpay_transaction_id: qpayPayment ? qpayInvoice?.transaction_id ?? null : null,
       });
 
       onPaymentSuccess({
@@ -164,6 +216,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
         lines,
         total,
         paymentMethod: nextMethod,
+        payments,
         paidAt: new Date().toISOString(),
       });
     } catch (orderError) {
@@ -240,6 +293,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
                 onClick={() => {
                   setMethod(option.method);
                   setMockSuccess(false);
+                  setSplitCardConfirmed(false);
                   setError(null);
                   setQpayNotice(null);
                 }}
@@ -309,7 +363,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
                   <button
                     className="primary-button"
                     type="button"
-                    onClick={() => void submitOrder("qpay")}
+                    onClick={() => void submitOrder("qpay", [{ method: "qpay", amount: total }])}
                     disabled={!qpayPaid || submitting}
                   >
                     <ReceiptText size={17} aria-hidden="true" />
@@ -343,7 +397,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
                   <button
                     className="primary-button"
                     type="button"
-                    onClick={() => void submitOrder("card")}
+                    onClick={() => void submitOrder("card", [{ method: "card", amount: total }])}
                     disabled={!mockSuccess || submitting}
                   >
                     <ReceiptText size={17} aria-hidden="true" />
@@ -380,13 +434,181 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
                 <button
                   className="primary-button full-width"
                   type="button"
-                  onClick={() => void submitOrder("cash")}
+                  onClick={() => void submitOrder("cash", [{ method: "cash", amount: total }])}
                   disabled={!cashReady || submitting}
                 >
                   <ReceiptText size={17} aria-hidden="true" />
                   <span>{submitting ? "Илгээж байна" : `${paymentMethodLabel("cash")} батлах`}</span>
                 </button>
               </div>
+            </div>
+          ) : null}
+
+          {method === "split" ? (
+            <div className="split-payment-panel">
+              <div className="split-payment-grid">
+                <label className="split-payment-row">
+                  <span className="split-payment-label">
+                    <Wallet size={18} aria-hidden="true" />
+                    Бэлэн мөнгө
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    inputMode="numeric"
+                    value={splitCashAmount}
+                    onChange={(event) => setSplitCashAmount(event.target.value)}
+                    placeholder="0"
+                  />
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => setSplitCashAmount(String(Math.max(0, splitRemaining + splitCash)))}
+                  >
+                    Үлдэгдэл
+                  </button>
+                </label>
+
+                <label className="split-payment-row">
+                  <span className="split-payment-label">
+                    <CreditCard size={18} aria-hidden="true" />
+                    Карт
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    inputMode="numeric"
+                    value={splitCardAmount}
+                    onChange={(event) => {
+                      setSplitCardAmount(event.target.value);
+                      setSplitCardConfirmed(false);
+                    }}
+                    placeholder="0"
+                  />
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => {
+                      setSplitCardAmount(String(Math.max(0, splitRemaining + splitCard)));
+                      setSplitCardConfirmed(false);
+                    }}
+                  >
+                    Үлдэгдэл
+                  </button>
+                </label>
+
+                <label className="split-payment-row">
+                  <span className="split-payment-label">
+                    <QrCode size={18} aria-hidden="true" />
+                    QPay
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    inputMode="numeric"
+                    value={splitQpayAmount}
+                    onChange={(event) => setSplitQpayAmount(event.target.value)}
+                    placeholder="0"
+                  />
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => setSplitQpayAmount(String(Math.max(0, splitRemaining + splitQpay)))}
+                  >
+                    Үлдэгдэл
+                  </button>
+                </label>
+              </div>
+
+              <div className={splitMatchesTotal ? "split-summary success" : "split-summary"}>
+                <span>Хуваасан дүн</span>
+                <strong>{formatMoney(splitTotal)}</strong>
+                <span>{splitRemaining >= 0 ? "Үлдэгдэл" : "Илүү"}</span>
+                <strong>{formatMoney(Math.abs(splitRemaining))}</strong>
+              </div>
+
+              {splitCard > 0 ? (
+                <div className="split-confirm-row">
+                  <div>
+                    <strong>Картын хэсэг</strong>
+                    <span>{formatMoney(splitCard)}</span>
+                  </div>
+                  <button
+                    className={splitCardConfirmed ? "secondary-button success-button" : "secondary-button"}
+                    type="button"
+                    onClick={() => setSplitCardConfirmed(true)}
+                    disabled={splitCardConfirmed || submitting}
+                  >
+                    <CreditCard size={17} aria-hidden="true" />
+                    <span>{splitCardConfirmed ? "Баталгаажсан" : "Карт батлах"}</span>
+                  </button>
+                </div>
+              ) : null}
+
+              {splitQpay > 0 ? (
+                <div className="split-qpay-box">
+                  <div className="qr-placeholder compact">
+                    {qpayLoading ? (
+                      <Loader2 className="spin-icon" size={36} aria-hidden="true" />
+                    ) : qpayInvoice?.qr_image && qpayInvoice.amount === splitQpay ? (
+                      <img
+                        className="qpay-qr-image"
+                        src={`data:image/png;base64,${qpayInvoice.qr_image}`}
+                        alt="QPay QR код"
+                      />
+                    ) : (
+                      <QrCode size={56} aria-hidden="true" />
+                    )}
+                  </div>
+                  <div>
+                    <h3>QPay хэсэг</h3>
+                    <p className="muted-text">Төлөх дүн: {formatMoney(splitQpay)}</p>
+                    <div className="qpay-status-grid">
+                      <span>Нэхэмжлэл</span>
+                      <strong>{qpayInvoice?.amount === splitQpay ? qpayInvoice.qpay_invoice_id ?? "Үүсээгүй" : "Үүсээгүй"}</strong>
+                      <span>Төлөв</span>
+                      <strong>{qpayInvoice?.amount === splitQpay ? qpayStateLabel ?? "Хүлээгдэж байна" : "Хүлээгдэж байна"}</strong>
+                    </div>
+                    {qpayPaid && qpayInvoice?.amount === splitQpay ? (
+                      <div className="success-box">QPay хэсэг амжилттай баталгаажлаа.</div>
+                    ) : null}
+                    <div className="payment-action-row">
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => void generateQpayInvoice(true, splitQpay)}
+                        disabled={qpayLoading || qpayChecking || submitting}
+                      >
+                        {qpayLoading ? <Loader2 className="spin-icon" size={17} aria-hidden="true" /> : <RefreshCw size={17} aria-hidden="true" />}
+                        <span>{qpayInvoice?.amount === splitQpay ? "QR дахин үүсгэх" : "QR үүсгэх"}</span>
+                      </button>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => void handleQpayCheck()}
+                        disabled={!qpayInvoice || qpayInvoice.amount !== splitQpay || qpayLoading || qpayChecking || submitting}
+                      >
+                        {qpayChecking ? <Loader2 className="spin-icon" size={17} aria-hidden="true" /> : <QrCode size={17} aria-hidden="true" />}
+                        <span>{qpayChecking ? "Шалгаж байна" : "Төлбөр шалгах"}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {!splitMatchesTotal ? (
+                <div className="inline-warning">Төлбөрийн нийлбэр нийт дүнтэй тэнцэх ёстой.</div>
+              ) : null}
+
+              <button
+                className="primary-button full-width"
+                type="button"
+                onClick={() => void submitOrder(splitPayments.length === 1 ? splitPayments[0].method : "mixed", splitPayments)}
+                disabled={!splitReady || submitting}
+              >
+                <ReceiptText size={17} aria-hidden="true" />
+                <span>{submitting ? "Илгээж байна" : "Хуваасан төлбөр батлах"}</span>
+              </button>
             </div>
           ) : null}
         </div>

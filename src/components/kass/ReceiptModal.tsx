@@ -33,6 +33,7 @@ export function ReceiptModal({ receipt, onNewSale }: ReceiptModalProps) {
   const receiptNumber = resolveReceiptNumber(receipt);
   const orderId = resolveOrderId(receipt);
   const paidAt = new Date(receipt.paidAt).toLocaleString("mn-MN");
+  const payments = receipt.payments?.length ? receipt.payments : [{ method: receipt.paymentMethod, amount: receipt.total }];
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="receipt-title">
@@ -72,6 +73,17 @@ export function ReceiptModal({ receipt, onNewSale }: ReceiptModalProps) {
               <strong>{paidAt}</strong>
             </div>
           </div>
+
+          {payments.length > 1 ? (
+            <div className="receipt-payment-parts">
+              {payments.map((payment) => (
+                <div key={payment.method}>
+                  <span>{paymentMethodLabel(payment.method)}</span>
+                  <strong>{formatMoney(payment.amount)}</strong>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           <div className="receipt-lines">
             <header className="receipt-line-heading">

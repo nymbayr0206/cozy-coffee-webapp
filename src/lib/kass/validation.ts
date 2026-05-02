@@ -1,5 +1,5 @@
 import { KassServerError } from "./errors";
-import type { PaymentMethod } from "./client-types";
+import type { PaymentMethod, PaymentPart } from "./client-types";
 
 const paymentMethods = new Set<PaymentMethod>(["cash", "card", "qpay"]);
 
@@ -39,6 +39,35 @@ export function parsePaymentMethod(value: unknown) {
   }
 
   return value as PaymentMethod;
+}
+
+export function parsePaymentParts(value: unknown, total: number) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new KassServerError("validation_error", "payments must contain at least one item", 400);
+  }
+
+  const byMethod = new Map<PaymentMethod, number>();
+
+  value.forEach((payment, index) => {
+    const item = payment as Record<string, unknown>;
+    const method = parsePaymentMethod(item.method);
+    const amount = parseNumber(item.amount, `payments[${index}].amount`, { min: 0.01 });
+    byMethod.set(method, Number((byMethod.get(method) ?? 0) + amount));
+  });
+
+  const payments: PaymentPart[] = Array.from(byMethod.entries())
+    .map(([method, amount]) => ({
+      method,
+      amount: Math.round(amount * 100) / 100,
+    }))
+    .filter((payment) => payment.amount > 0);
+  const paymentTotal = payments.reduce((sum, payment) => sum + payment.amount, 0);
+
+  if (Math.abs(paymentTotal - total) > 0.01) {
+    throw new KassServerError("validation_error", "payments total must match order total", 400);
+  }
+
+  return payments;
 }
 
 export function parseOrderLines(value: unknown) {

@@ -1233,7 +1233,7 @@ nextjs-portal {
 
 .payment-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1350,6 +1350,99 @@ nextjs-portal {
   background: #ffffff;
 }
 
+.split-payment-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.split-payment-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.split-payment-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.8fr) minmax(120px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.split-payment-row input {
+  width: 100%;
+}
+
+.split-payment-label,
+.split-confirm-row,
+.split-summary {
+  display: flex;
+  align-items: center;
+}
+
+.split-payment-label {
+  gap: 8px;
+  color: #334155;
+  font-weight: 800;
+}
+
+.split-summary {
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff7ed;
+}
+
+.split-summary.success {
+  background: #e8f5eb;
+  border-color: #badfc4;
+}
+
+.split-summary span,
+.split-confirm-row span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.split-confirm-row {
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.split-confirm-row div {
+  display: grid;
+  gap: 2px;
+}
+
+.success-button {
+  color: var(--green);
+  border-color: #badfc4;
+  background: #e8f5eb;
+}
+
+.split-qpay-box {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.qr-placeholder.compact {
+  min-height: 160px;
+}
+
 .receipt-meta {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1399,6 +1492,22 @@ nextjs-portal {
   background: var(--panel-soft);
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.receipt-payment-parts {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.receipt-payment-parts div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .receipt-meta span {
@@ -2783,6 +2892,17 @@ nextjs-portal {
 
   .payment-tabs {
     grid-template-columns: 1fr;
+  }
+
+  .split-payment-row,
+  .split-qpay-box {
+    grid-template-columns: 1fr;
+  }
+
+  .split-summary,
+  .split-confirm-row {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .recipe-header {

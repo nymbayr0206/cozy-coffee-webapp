@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { KassServerError } from "./errors";
-import type { PaymentMethod } from "./client-types";
+import type { OrderPaymentMethod, PaymentPart } from "./client-types";
 
 export interface KassSessionRecord {
   session_id: string;
@@ -27,7 +27,8 @@ export interface KassOrderRecord {
   qpay_transaction_id?: number;
   receipt_number: string;
   session_id: string;
-  payment_method: PaymentMethod;
+  payment_method: OrderPaymentMethod;
+  payment_parts?: PaymentPart[];
   total: number;
   lines: Array<{
     product_id: number;
@@ -44,7 +45,8 @@ export interface KassSessionEvent {
   cashier_name?: string;
   order_id?: string | number;
   receipt_number?: string;
-  payment_method?: PaymentMethod;
+  payment_method?: OrderPaymentMethod;
+  payment_parts?: PaymentPart[];
   amount?: number;
   opening_cash?: number;
   closing_cash?: number;
@@ -258,15 +260,9 @@ function getActiveSessionFromState(state: KassStoreState) {
 }
 
 function calculateReport(session: KassSessionRecord, orders: KassOrderRecord[]) {
-  const cash_total = orders
-    .filter((order) => order.payment_method === "cash")
-    .reduce((sum, order) => sum + order.total, 0);
-  const card_total = orders
-    .filter((order) => order.payment_method === "card")
-    .reduce((sum, order) => sum + order.total, 0);
-  const qpay_total = orders
-    .filter((order) => order.payment_method === "qpay")
-    .reduce((sum, order) => sum + order.total, 0);
+  const cash_total = orders.reduce((sum, order) => sum + paymentAmount(order, "cash"), 0);
+  const card_total = orders.reduce((sum, order) => sum + paymentAmount(order, "card"), 0);
+  const qpay_total = orders.reduce((sum, order) => sum + paymentAmount(order, "qpay"), 0);
   const total_sales = cash_total + card_total + qpay_total;
   const expected_cash = session.opening_cash + cash_total;
 
@@ -282,6 +278,16 @@ function calculateReport(session: KassSessionRecord, orders: KassOrderRecord[]) 
     cash_difference: session.closing_cash === undefined ? undefined : session.closing_cash - expected_cash,
     orders,
   };
+}
+
+function paymentAmount(order: KassOrderRecord, method: "cash" | "card" | "qpay") {
+  if (Array.isArray(order.payment_parts) && order.payment_parts.length > 0) {
+    return order.payment_parts
+      .filter((payment) => payment.method === method)
+      .reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
+  }
+
+  return order.payment_method === method ? Number(order.total ?? 0) : 0;
 }
 
 export function openSession(cashierName: string, openingCash: number) {
@@ -353,6 +359,7 @@ export function addOrder(order: KassOrderRecord) {
       order_id: order.order_id,
       receipt_number: order.receipt_number,
       payment_method: order.payment_method,
+      payment_parts: order.payment_parts,
       amount: order.total,
       created_at: order.created_at,
     });

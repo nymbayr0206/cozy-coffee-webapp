@@ -369,6 +369,7 @@ export function paymentMethodLabel(method: string | undefined) {
   if (method === "cash") return "Бэлэн мөнгө";
   if (method === "card") return "Карт";
   if (method === "qpay") return "QPay";
+  if (method === "mixed") return "Хуваасан";
   if (method === "other") return "Бусад";
   return "Тодорхойгүй";
 }
