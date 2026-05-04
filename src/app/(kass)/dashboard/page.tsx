@@ -4,6 +4,7 @@ import {
   Banknote,
   Clock3,
   CreditCard,
+  Landmark,
   QrCode,
   ReceiptText,
   RefreshCcw,
@@ -39,19 +40,22 @@ export default function DashboardPage() {
   const cashTotal = Number(report?.cash_total ?? 0);
   const cardTotal = Number(report?.card_total ?? 0);
   const qpayTotal = Number(report?.qpay_total ?? 0);
+  const bankTotal = Number(report?.bank_total ?? 0);
   const ordersCount = Number(report?.orders_count ?? 0);
   const openingCash = Number(report?.opening_cash ?? 0);
   const expectedCash = Number(report?.expected_cash ?? openingCash + cashTotal);
-  const paymentsTotal = cashTotal + cardTotal + qpayTotal;
+  const paymentsTotal = cashTotal + cardTotal + qpayTotal + bankTotal;
   const cashRatio = paymentsTotal > 0 ? Math.round((cashTotal / paymentsTotal) * 100) : 0;
   const cardRatio = paymentsTotal > 0 ? Math.round((cardTotal / paymentsTotal) * 100) : 0;
-  const qpayRatio = paymentsTotal > 0 ? Math.max(0, 100 - cashRatio - cardRatio) : 0;
+  const qpayRatio = paymentsTotal > 0 ? Math.round((qpayTotal / paymentsTotal) * 100) : 0;
+  const bankRatio = paymentsTotal > 0 ? Math.max(0, 100 - cashRatio - cardRatio - qpayRatio) : 0;
   const recentOrders = (report?.orders ?? []).slice(0, 5);
 
   const paymentCards = [
     { label: "Бэлэн", value: cashTotal, ratio: cashRatio, icon: Banknote, tone: "green" },
     { label: "Карт", value: cardTotal, ratio: cardRatio, icon: CreditCard, tone: "blue" },
     { label: "QPay", value: qpayTotal, ratio: qpayRatio, icon: QrCode, tone: "amber" },
+    { label: "Дансаар", value: bankTotal, ratio: bankRatio, icon: Landmark, tone: "slate" },
   ];
 
   return (
@@ -120,6 +124,7 @@ export default function DashboardPage() {
             <span className="mix-cash" style={{ width: `${cashRatio}%` }} />
             <span className="mix-card" style={{ width: `${cardRatio}%` }} />
             <span className="mix-qpay" style={{ width: `${qpayRatio}%` }} />
+            <span className="mix-bank" style={{ width: `${bankRatio}%` }} />
           </div>
 
           <div className="dashboard-payment-grid">
@@ -216,7 +221,7 @@ export default function DashboardPage() {
             </div>
             <div>
               <span>Дижитал төлбөр</span>
-              <strong>{formatMoney(cardTotal + qpayTotal)}</strong>
+              <strong>{formatMoney(cardTotal + qpayTotal + bankTotal)}</strong>
             </div>
             <div>
               <span>Ээлжийн төлөв</span>

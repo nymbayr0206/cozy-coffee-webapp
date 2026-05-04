@@ -134,6 +134,17 @@ interface OdooSaleOrderRecord {
   state?: string | false;
 }
 
+interface OdooSaleOrderLineRecord {
+  id: number;
+  order_id?: [number, string] | false;
+  product_id?: [number, string] | false;
+  product_uom_qty?: number;
+  price_total?: number;
+  price_subtotal?: number;
+  price_unit?: number;
+  display_type?: string | false;
+}
+
 interface OdooQpayTransactionRecord {
   id: number;
   name?: string | false;
@@ -2262,6 +2273,7 @@ function parseKassPaymentMethod(note: string | false | undefined) {
   if (value.includes("payment method: cash")) return "cash";
   if (value.includes("payment method: card")) return "card";
   if (value.includes("payment method: qpay")) return "qpay";
+  if (value.includes("payment method: bank")) return "bank";
   return "other";
 }
 
@@ -2272,7 +2284,7 @@ function parseKassPaymentParts(note: string | false | undefined, total: number):
   if (match) {
     const parts = match[1]
       .split(/[;,]/)
-      .map((part) => part.trim().match(/^(cash|card|qpay)\s*=\s*([0-9]+(?:\.[0-9]+)?)/i))
+      .map((part) => part.trim().match(/^(cash|card|qpay|bank)\s*=\s*([0-9]+(?:\.[0-9]+)?)/i))
       .filter((part): part is RegExpMatchArray => Boolean(part))
       .map((part) => ({
         method: part[1].toLowerCase() as PaymentPart["method"],
@@ -2284,7 +2296,7 @@ function parseKassPaymentParts(note: string | false | undefined, total: number):
   }
 
   const paymentMethod = parseKassPaymentMethod(note);
-  if (paymentMethod === "cash" || paymentMethod === "card" || paymentMethod === "qpay") {
+  if (paymentMethod === "cash" || paymentMethod === "card" || paymentMethod === "qpay" || paymentMethod === "bank") {
     return [{ method: paymentMethod, amount: total }];
   }
 
@@ -2303,6 +2315,57 @@ function formatPaymentNote(paymentMethod: string, payments: PaymentPart[]) {
 function normalizeOdooDateTime(value: string | false | undefined) {
   if (typeof value !== "string" || !value) return null;
   return `${value.replace(" ", "T")}Z`;
+}
+
+function summarizeSaleOrderLines(lines: OdooSaleOrderLineRecord[]) {
+  const byProduct = new Map<
+    number,
+    {
+      product_id: number;
+      name: string;
+      quantity: number;
+      total: number;
+      orderIds: Set<number>;
+    }
+  >();
+
+  lines.forEach((line) => {
+    if (line.display_type) return;
+
+    const productId = relationId(line.product_id);
+    if (!productId) return;
+
+    const quantity = Number(line.product_uom_qty ?? 0);
+    if (!Number.isFinite(quantity) || quantity <= 0) return;
+
+    const total = Number(line.price_total ?? line.price_subtotal ?? quantity * Number(line.price_unit ?? 0));
+    const current =
+      byProduct.get(productId) ??
+      {
+        product_id: productId,
+        name: relationName(line.product_id) ?? `Product ${productId}`,
+        quantity: 0,
+        total: 0,
+        orderIds: new Set<number>(),
+      };
+
+    current.quantity += quantity;
+    current.total += Number.isFinite(total) ? total : 0;
+    const orderId = relationId(line.order_id);
+    if (orderId) current.orderIds.add(orderId);
+    byProduct.set(productId, current);
+  });
+
+  return Array.from(byProduct.values())
+    .map((product) => ({
+      product_id: product.product_id,
+      name: product.name,
+      quantity: Math.round(product.quantity * 1000) / 1000,
+      total: Math.round(product.total * 100) / 100,
+      orders_count: product.orderIds.size,
+      average_price: product.quantity > 0 ? product.total / product.quantity : 0,
+    }))
+    .sort((a, b) => b.quantity - a.quantity || b.total - a.total || a.name.localeCompare(b.name));
 }
 
 export async function getOdooSalesReport(startIso: string, endIso: string) {
@@ -2341,6 +2404,35 @@ export async function getOdooSalesReport(startIso: string, endIso: string) {
     },
   );
 
+  const orderIds = records.map((record) => record.id);
+  const saleOrderLineFields = await getFieldNames(config, uid, "sale.order.line");
+  const lineFields = [
+    "id",
+    "order_id",
+    "product_id",
+    "product_uom_qty",
+    "price_total",
+    "price_subtotal",
+    "price_unit",
+    "display_type",
+  ].filter((field) => saleOrderLineFields.has(field));
+  const orderLines =
+    orderIds.length > 0
+      ? await executeKw<OdooSaleOrderLineRecord[]>(
+          config,
+          uid,
+          "sale.order.line",
+          "search_read",
+          [[["order_id", "in", orderIds]]],
+          {
+            fields: lineFields,
+            limit: 10000,
+            order: "product_id asc",
+          },
+        )
+      : [];
+  const products = summarizeSaleOrderLines(orderLines);
+
   const orders = records.map((record) => {
     const total = Number(record.amount_total ?? 0);
     const paymentParts = parseKassPaymentParts(record.note, total);
@@ -2370,11 +2462,15 @@ export async function getOdooSalesReport(startIso: string, endIso: string) {
       const qpayAmount = order.payment_parts
         .filter((payment) => payment.method === "qpay")
         .reduce((total, payment) => total + payment.amount, 0);
-      const knownTotal = cashAmount + cardAmount + qpayAmount;
+      const bankAmount = order.payment_parts
+        .filter((payment) => payment.method === "bank")
+        .reduce((total, payment) => total + payment.amount, 0);
+      const knownTotal = cashAmount + cardAmount + qpayAmount + bankAmount;
 
       sum.cash_total += cashAmount;
       sum.card_total += cardAmount;
       sum.qpay_total += qpayAmount;
+      sum.bank_total += bankAmount;
       sum.other_total += Math.max(0, order.total - knownTotal);
       return sum;
     },
@@ -2383,6 +2479,7 @@ export async function getOdooSalesReport(startIso: string, endIso: string) {
       cash_total: 0,
       card_total: 0,
       qpay_total: 0,
+      bank_total: 0,
       other_total: 0,
       orders_count: 0,
     },
@@ -2394,6 +2491,7 @@ export async function getOdooSalesReport(startIso: string, endIso: string) {
     ...totals,
     average_order: totals.orders_count > 0 ? totals.total_sales / totals.orders_count : 0,
     orders,
+    products,
   };
 }
 

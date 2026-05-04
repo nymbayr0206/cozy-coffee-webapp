@@ -2,6 +2,7 @@
 
 import {
   CreditCard,
+  Landmark,
   Loader2,
   QrCode,
   ReceiptText,
@@ -44,6 +45,7 @@ const paymentOptions: Array<{
 }> = [
   { method: "qpay", label: "QPay", icon: QrCode },
   { method: "card", label: "Карт", icon: CreditCard },
+  { method: "bank", label: "Дансаар", icon: Landmark },
   { method: "cash", label: "Бэлэн мөнгө", icon: Wallet },
   { method: "split", label: "Хуваах", icon: Split },
 ];
@@ -53,8 +55,10 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
   const [cashReceived, setCashReceived] = useState("");
   const [splitCashAmount, setSplitCashAmount] = useState("");
   const [splitCardAmount, setSplitCardAmount] = useState("");
+  const [splitBankAmount, setSplitBankAmount] = useState("");
   const [splitQpayAmount, setSplitQpayAmount] = useState("");
   const [splitCardConfirmed, setSplitCardConfirmed] = useState(false);
+  const [splitBankConfirmed, setSplitBankConfirmed] = useState(false);
   const [mockSuccess, setMockSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,19 +88,21 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
   const cashReady = method !== "cash" || received >= total;
   const splitCash = Number(splitCashAmount || 0);
   const splitCard = Number(splitCardAmount || 0);
+  const splitBank = Number(splitBankAmount || 0);
   const splitQpay = Number(splitQpayAmount || 0);
-  const splitTotal = splitCash + splitCard + splitQpay;
+  const splitTotal = splitCash + splitCard + splitBank + splitQpay;
   const splitRemaining = total - splitTotal;
   const splitMatchesTotal = Math.abs(splitRemaining) <= 0.01;
-  const splitAmountsValid = [splitCash, splitCard, splitQpay].every((amount) => Number.isFinite(amount) && amount >= 0);
+  const splitAmountsValid = [splitCash, splitCard, splitBank, splitQpay].every((amount) => Number.isFinite(amount) && amount >= 0);
   const splitPayments = useMemo(
     () =>
       [
         { method: "cash", amount: splitCash },
         { method: "card", amount: splitCard },
+        { method: "bank", amount: splitBank },
         { method: "qpay", amount: splitQpay },
       ].filter((payment): payment is PaymentPart => payment.amount > 0 && Number.isFinite(payment.amount)),
-    [splitCard, splitCash, splitQpay],
+    [splitBank, splitCard, splitCash, splitQpay],
   );
   const splitReady =
     method !== "split" ||
@@ -104,6 +110,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
       splitMatchesTotal &&
       splitPayments.length > 0 &&
       (splitCard <= 0 || splitCardConfirmed) &&
+      (splitBank <= 0 || splitBankConfirmed) &&
       (splitQpay <= 0 || (qpayInvoice?.amount === splitQpay && qpayPaid)));
 
   const generateQpayInvoice = useCallback(
@@ -159,8 +166,10 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     setCashReceived("");
     setSplitCashAmount("");
     setSplitCardAmount("");
+    setSplitBankAmount("");
     setSplitQpayAmount("");
     setSplitCardConfirmed(false);
+    setSplitBankConfirmed(false);
     setMockSuccess(false);
     setSubmitting(false);
     setError(null);
@@ -294,6 +303,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
                   setMethod(option.method);
                   setMockSuccess(false);
                   setSplitCardConfirmed(false);
+                  setSplitBankConfirmed(false);
                   setError(null);
                   setQpayNotice(null);
                 }}
@@ -408,6 +418,40 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
             </div>
           ) : null}
 
+          {method === "bank" ? (
+            <div className="payment-method-panel">
+              <div className="terminal-placeholder">
+                <Landmark size={58} aria-hidden="true" />
+                <span>Дансны шилжүүлэг шалгана уу</span>
+              </div>
+              <div>
+                <h3>Дансаар төлбөр</h3>
+                <p className="muted-text">Нийт дүн: {formatMoney(total)}</p>
+                {mockSuccess ? <div className="success-box">Дансаар төлбөр амжилттай.</div> : null}
+                <div className="payment-action-row">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => setMockSuccess(true)}
+                    disabled={mockSuccess || submitting}
+                  >
+                    <Landmark size={17} aria-hidden="true" />
+                    <span>Шилжүүлэг орсон</span>
+                  </button>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={() => void submitOrder("bank", [{ method: "bank", amount: total }])}
+                    disabled={!mockSuccess || submitting}
+                  >
+                    <ReceiptText size={17} aria-hidden="true" />
+                    <span>{submitting ? "Илгээж байна" : "Захиалга үүсгэх"}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {method === "cash" ? (
             <div className="payment-method-panel">
               <div className="cash-stack">
@@ -499,6 +543,34 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
 
                 <label className="split-payment-row">
                   <span className="split-payment-label">
+                    <Landmark size={18} aria-hidden="true" />
+                    Дансаар
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    inputMode="numeric"
+                    value={splitBankAmount}
+                    onChange={(event) => {
+                      setSplitBankAmount(event.target.value);
+                      setSplitBankConfirmed(false);
+                    }}
+                    placeholder="0"
+                  />
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => {
+                      setSplitBankAmount(String(Math.max(0, splitRemaining + splitBank)));
+                      setSplitBankConfirmed(false);
+                    }}
+                  >
+                    Үлдэгдэл
+                  </button>
+                </label>
+
+                <label className="split-payment-row">
+                  <span className="split-payment-label">
                     <QrCode size={18} aria-hidden="true" />
                     QPay
                   </span>
@@ -541,6 +613,24 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
                   >
                     <CreditCard size={17} aria-hidden="true" />
                     <span>{splitCardConfirmed ? "Баталгаажсан" : "Карт батлах"}</span>
+                  </button>
+                </div>
+              ) : null}
+
+              {splitBank > 0 ? (
+                <div className="split-confirm-row">
+                  <div>
+                    <strong>Дансны хэсэг</strong>
+                    <span>{formatMoney(splitBank)}</span>
+                  </div>
+                  <button
+                    className={splitBankConfirmed ? "secondary-button success-button" : "secondary-button"}
+                    type="button"
+                    onClick={() => setSplitBankConfirmed(true)}
+                    disabled={splitBankConfirmed || submitting}
+                  >
+                    <Landmark size={17} aria-hidden="true" />
+                    <span>{splitBankConfirmed ? "Баталгаажсан" : "Данс батлах"}</span>
                   </button>
                 </div>
               ) : null}

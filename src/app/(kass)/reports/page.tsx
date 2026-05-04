@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, CalendarDays, RefreshCcw } from "lucide-react";
+import { BarChart3, CalendarDays, Package, RefreshCcw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { formatMoney, getReadableError, getSalesReport, paymentMethodLabel } from "@/lib/kass/client-api";
 import type { KassOrderSummary, SalesReportPeriod, SalesReportResponse } from "@/lib/kass/client-types";
@@ -10,6 +10,21 @@ const periodOptions: Array<{ key: SalesReportPeriod; label: string }> = [
   { key: "week", label: "7 хоног" },
   { key: "month", label: "Сар" },
   { key: "year", label: "Жил" },
+];
+
+const monthLabels = [
+  "1-р сар",
+  "2-р сар",
+  "3-р сар",
+  "4-р сар",
+  "5-р сар",
+  "6-р сар",
+  "7-р сар",
+  "8-р сар",
+  "9-р сар",
+  "10-р сар",
+  "11-р сар",
+  "12-р сар",
 ];
 
 function startOfDay(date: Date) {
@@ -70,12 +85,13 @@ function getDateRange(period: SalesReportPeriod, anchorValue: string) {
 }
 
 function formatRange(start: Date, end: Date) {
-  const formatter = new Intl.DateTimeFormat("mn-MN", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-  return `${formatter.format(start)} - ${formatter.format(addDays(end, -1))}`;
+  return `${formatMonthDay(start, true)} - ${formatMonthDay(addDays(end, -1), true)}`;
+}
+
+function formatMonthDay(date: Date, includeYear = false) {
+  const month = monthLabels[date.getMonth()] ?? "";
+  const day = date.getDate();
+  return includeYear ? `${date.getFullYear()} оны ${month} ${day}` : `${month} ${day}`;
 }
 
 function formatDateTime(value?: string | null) {
@@ -90,6 +106,12 @@ function formatDateTime(value?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatQuantity(quantity: number) {
+  return Number.isInteger(quantity)
+    ? quantity.toLocaleString("mn-MN")
+    : quantity.toLocaleString("mn-MN", { maximumFractionDigits: 3 });
 }
 
 function makeBuckets(orders: KassOrderSummary[], period: SalesReportPeriod, start: Date, end: Date) {
@@ -124,8 +146,8 @@ function makeBuckets(orders: KassOrderSummary[], period: SalesReportPeriod, star
       period === "day"
         ? `${String(index).padStart(2, "0")}:00`
         : period === "year"
-          ? new Intl.DateTimeFormat("mn-MN", { month: "short" }).format(bucketStart)
-          : new Intl.DateTimeFormat("mn-MN", { month: "short", day: "numeric" }).format(bucketStart);
+          ? monthLabels[bucketStart.getMonth()]
+          : formatMonthDay(bucketStart);
 
     return {
       label,
@@ -149,6 +171,8 @@ export default function ReportsPage() {
   const [error, setError] = useState<string | null>(null);
   const { start, end } = useMemo(() => getDateRange(period, anchorDate), [anchorDate, period]);
   const orders = report?.orders ?? [];
+  const productRows = report?.products ?? [];
+  const topProduct = productRows[0] ?? null;
   const buckets = useMemo(() => makeBuckets(orders, period, start, end), [end, orders, period, start]);
 
   async function loadReport() {
@@ -233,6 +257,10 @@ export default function ReportsPage() {
             <strong>{formatMoney(report?.qpay_total)}</strong>
           </div>
           <div className="metric">
+            <span>Дансаар</span>
+            <strong>{formatMoney(report?.bank_total)}</strong>
+          </div>
+          <div className="metric">
             <span>Бусад</span>
             <strong>{formatMoney(report?.other_total)}</strong>
           </div>
@@ -284,11 +312,66 @@ export default function ReportsPage() {
               <strong>{formatMoney(report?.qpay_total)}</strong>
             </div>
             <div>
+              <span>Дансаар</span>
+              <strong>{formatMoney(report?.bank_total)}</strong>
+            </div>
+            <div>
               <span>Бусад</span>
               <strong>{formatMoney(report?.other_total)}</strong>
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="content-panel">
+        <div className="panel-toolbar">
+          <div>
+            <p className="eyebrow">Бараа</p>
+            <h2>Бүтээгдэхүүний задаргаа</h2>
+            {topProduct ? (
+              <p className="muted-text small">
+                Хамгийн их зарагдсан: {topProduct.name} · {formatQuantity(topProduct.quantity)} ш
+              </p>
+            ) : null}
+          </div>
+          <span className="soft-pill">{productRows.length} бараа</span>
+        </div>
+
+        {productRows.length > 0 ? (
+          <div className="table-wrap">
+            <table className="data-table product-sales-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Бараа бүтээгдэхүүн</th>
+                  <th>Зарагдсан тоо</th>
+                  <th>Нийт дүн</th>
+                  <th>Дундаж үнэ</th>
+                  <th>Захиалга</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productRows.map((product, index) => (
+                  <tr key={product.product_id}>
+                    <td>{index + 1}</td>
+                    <td>
+                      <strong>{product.name}</strong>
+                    </td>
+                    <td>{formatQuantity(product.quantity)} ш</td>
+                    <td>{formatMoney(product.total)}</td>
+                    <td>{formatMoney(product.average_price)}</td>
+                    <td>{product.orders_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="compact-empty">
+            <Package size={22} aria-hidden="true" />
+            <span>{loading ? "Барааны тайлан уншиж байна." : "Энэ хугацаанд барааны борлуулалт алга байна."}</span>
+          </div>
+        )}
       </section>
 
       <section className="content-panel">

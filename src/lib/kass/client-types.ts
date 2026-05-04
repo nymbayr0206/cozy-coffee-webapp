@@ -1,4 +1,4 @@
-export type PaymentMethod = "cash" | "card" | "qpay";
+export type PaymentMethod = "cash" | "card" | "qpay" | "bank";
 export type OrderPaymentMethod = PaymentMethod | "mixed";
 
 export interface PaymentPart {
@@ -329,6 +329,15 @@ export interface KassOrderSummary {
   [key: string]: unknown;
 }
 
+export interface SalesProductSummary {
+  product_id: number;
+  name: string;
+  quantity: number;
+  total: number;
+  orders_count: number;
+  average_price: number;
+}
+
 export type SalesReportPeriod = "day" | "week" | "month" | "year";
 
 export interface SalesReportResponse {
@@ -339,10 +348,12 @@ export interface SalesReportResponse {
   cash_total: number;
   card_total: number;
   qpay_total: number;
+  bank_total: number;
   other_total: number;
   orders_count: number;
   average_order: number;
   orders: KassOrderSummary[];
+  products: SalesProductSummary[];
 }
 
 export interface KassReport {
@@ -357,6 +368,7 @@ export interface KassReport {
   cash_total?: number;
   card_total?: number;
   qpay_total?: number;
+  bank_total?: number;
   orders_count?: number;
   expected_cash?: number;
   orders?: KassOrderSummary[];
@@ -378,6 +390,7 @@ export interface CloseSessionResponse {
   cash_total?: number;
   card_total?: number;
   qpay_total?: number;
+  bank_total?: number;
   orders_count?: number;
   closed_at?: string;
   report?: Partial<KassReport>;

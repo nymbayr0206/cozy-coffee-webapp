@@ -1233,7 +1233,7 @@ nextjs-portal {
 
 .payment-tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1744,9 +1744,13 @@ nextjs-portal {
   background: #f59e0b;
 }
 
+.mix-bank {
+  background: #64748b;
+}
+
 .dashboard-payment-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1793,6 +1797,11 @@ nextjs-portal {
 .payment-stat.amber .dashboard-icon {
   color: var(--amber);
   background: #fff4df;
+}
+
+.payment-stat.slate .dashboard-icon {
+  color: #475569;
+  background: #eef2f7;
 }
 
 .cash-check-list,

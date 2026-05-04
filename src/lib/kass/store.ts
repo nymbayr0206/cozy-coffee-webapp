@@ -263,7 +263,8 @@ function calculateReport(session: KassSessionRecord, orders: KassOrderRecord[]) 
   const cash_total = orders.reduce((sum, order) => sum + paymentAmount(order, "cash"), 0);
   const card_total = orders.reduce((sum, order) => sum + paymentAmount(order, "card"), 0);
   const qpay_total = orders.reduce((sum, order) => sum + paymentAmount(order, "qpay"), 0);
-  const total_sales = cash_total + card_total + qpay_total;
+  const bank_total = orders.reduce((sum, order) => sum + paymentAmount(order, "bank"), 0);
+  const total_sales = cash_total + card_total + qpay_total + bank_total;
   const expected_cash = session.opening_cash + cash_total;
 
   return {
@@ -273,6 +274,7 @@ function calculateReport(session: KassSessionRecord, orders: KassOrderRecord[]) 
     cash_total,
     card_total,
     qpay_total,
+    bank_total,
     orders_count: orders.length,
     expected_cash,
     cash_difference: session.closing_cash === undefined ? undefined : session.closing_cash - expected_cash,
@@ -280,7 +282,7 @@ function calculateReport(session: KassSessionRecord, orders: KassOrderRecord[]) 
   };
 }
 
-function paymentAmount(order: KassOrderRecord, method: "cash" | "card" | "qpay") {
+function paymentAmount(order: KassOrderRecord, method: PaymentPart["method"]) {
   if (Array.isArray(order.payment_parts) && order.payment_parts.length > 0) {
     return order.payment_parts
       .filter((payment) => payment.method === method)

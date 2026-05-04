@@ -593,6 +593,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <strong>{formatMoney(closeResult.qpay_total ?? closeResult.report?.qpay_total)}</strong>
               </div>
               <div className="metric">
+                <span>Дансаар</span>
+                <strong>{formatMoney(closeResult.bank_total ?? closeResult.report?.bank_total)}</strong>
+              </div>
+              <div className="metric">
                 <span>Хүлээгдэж буй бэлэн мөнгө</span>
                 <strong>{formatMoney(closeResult.expected_cash ?? closeResult.report?.expected_cash)}</strong>
               </div>
