@@ -1,9 +1,9 @@
 "use client";
 
-import { BarChart3, CalendarDays, Package, RefreshCcw } from "lucide-react";
+import { BarChart3, CalendarDays, ClipboardList, Package, RefreshCcw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { formatMoney, getReadableError, getSalesReport, paymentMethodLabel } from "@/lib/kass/client-api";
-import type { KassOrderSummary, SalesReportPeriod, SalesReportResponse } from "@/lib/kass/client-types";
+import { formatMoney, getReadableError, getSalesReport, getStockReceipts, paymentMethodLabel } from "@/lib/kass/client-api";
+import type { KassOrderSummary, KassStockReceipt, SalesReportPeriod, SalesReportResponse } from "@/lib/kass/client-types";
 
 const periodOptions: Array<{ key: SalesReportPeriod; label: string }> = [
   { key: "day", label: "Өдөр" },
@@ -167,6 +167,7 @@ export default function ReportsPage() {
   const [period, setPeriod] = useState<SalesReportPeriod>("day");
   const [anchorDate, setAnchorDate] = useState(() => toDateInputValue(new Date()));
   const [report, setReport] = useState<SalesReportResponse | null>(null);
+  const [stockReceipts, setStockReceipts] = useState<KassStockReceipt[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { start, end } = useMemo(() => getDateRange(period, anchorDate), [anchorDate, period]);
@@ -174,17 +175,45 @@ export default function ReportsPage() {
   const productRows = report?.products ?? [];
   const topProduct = productRows[0] ?? null;
   const buckets = useMemo(() => makeBuckets(orders, period, start, end), [end, orders, period, start]);
+  const stockReceiptSummary = useMemo(
+    () =>
+      stockReceipts.reduce(
+        (sum, receipt) => {
+          if (receipt.status === "returned") {
+            sum.returned_count += 1;
+            return sum;
+          }
+
+          sum.active_count += 1;
+          sum.total_quantity += Number(receipt.quantity ?? 0);
+          sum.total_cost += Number(receipt.total_cost ?? 0);
+          return sum;
+        },
+        {
+          active_count: 0,
+          returned_count: 0,
+          total_quantity: 0,
+          total_cost: 0,
+        },
+      ),
+    [stockReceipts],
+  );
 
   async function loadReport() {
     setLoading(true);
     setError(null);
 
     try {
-      const nextReport = await getSalesReport(period, start.toISOString(), end.toISOString());
+      const [nextReport, nextStockReceipts] = await Promise.all([
+        getSalesReport(period, start.toISOString(), end.toISOString()),
+        getStockReceipts({ start: start.toISOString(), end: end.toISOString(), status: "all" }),
+      ]);
       setReport(nextReport);
+      setStockReceipts(nextStockReceipts.receipts ?? []);
     } catch (loadError) {
       setError(getReadableError(loadError));
       setReport(null);
+      setStockReceipts([]);
     } finally {
       setLoading(false);
     }
@@ -321,6 +350,66 @@ export default function ReportsPage() {
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="content-panel">
+        <div className="panel-toolbar">
+          <div>
+            <p className="eyebrow">Агуулах</p>
+            <h2>Орлогын тайлан</h2>
+            <p className="muted-text small">
+              Идэвхтэй {stockReceiptSummary.active_count} орлого · Буцаагдсан {stockReceiptSummary.returned_count} · Нийт өртөг {formatMoney(stockReceiptSummary.total_cost)}
+            </p>
+          </div>
+          <span className="soft-pill">{stockReceipts.length} мөр</span>
+        </div>
+
+        {stockReceipts.length > 0 ? (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Огноо</th>
+                  <th>Бараа</th>
+                  <th>Тоо</th>
+                  <th>Нэгж өртөг</th>
+                  <th>Нийт</th>
+                  <th>Харилцагч</th>
+                  <th>Төлөв</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stockReceipts.map((receipt) => {
+                  const isReturned = receipt.status === "returned";
+
+                  return (
+                    <tr key={receipt.receipt_id}>
+                      <td>{formatDateTime(receipt.created_at)}</td>
+                      <td>
+                        <strong>{receipt.product_name}</strong>
+                        {receipt.note ? <small className="table-subtext">{receipt.note}</small> : null}
+                      </td>
+                      <td>{formatQuantity(receipt.quantity)}</td>
+                      <td>{formatMoney(receipt.unit_cost)}</td>
+                      <td>{formatMoney(isReturned ? 0 : receipt.total_cost)}</td>
+                      <td>{receipt.partner_name || "Сонгоогүй"}</td>
+                      <td>
+                        <span className={isReturned ? "soft-pill muted-pill" : "soft-pill"}>
+                          {isReturned ? "Буцаагдсан" : "Идэвхтэй"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="compact-empty">
+            <ClipboardList size={22} aria-hidden="true" />
+            <span>{loading ? "Орлогын тайлан уншиж байна." : "Энэ хугацаанд агуулахын орлого бүртгэгдээгүй байна."}</span>
+          </div>
+        )}
       </section>
 
       <section className="content-panel">

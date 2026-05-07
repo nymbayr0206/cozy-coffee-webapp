@@ -2021,6 +2021,70 @@ export async function receiveOdooProductStock(
   }
 }
 
+export async function setOdooProductCost(productId: number, unitCost: number) {
+  const config = getOdooConfig();
+  const uid = await authenticate(config);
+  const modules = await getModuleStates(config, uid);
+  assertModuleInstalled(modules, "product");
+
+  if (!Number.isFinite(unitCost) || unitCost <= 0) {
+    throw new KassServerError("validation_error", "Нэгж өртөг 0-ээс их байх ёстой.", 400);
+  }
+
+  const templateId = await getProductTemplateId(config, uid, productId);
+  const templateFields = await getFieldNames(config, uid, "product.template");
+  if (templateFields.has("standard_price")) {
+    await executeKw<boolean>(config, uid, "product.template", "write", [[templateId], { standard_price: unitCost }]);
+  }
+
+  return readProduct(config, uid, productId);
+}
+
+export async function adjustOdooProductStock(
+  productId: number,
+  quantityDelta: number,
+  input: {
+    unit_cost?: number | null;
+  } = {},
+) {
+  const config = getOdooConfig();
+  const uid = await authenticate(config);
+  const modules = await getModuleStates(config, uid);
+  assertModuleInstalled(modules, "product");
+  assertModuleInstalled(modules, "stock");
+
+  if (!Number.isFinite(quantityDelta)) {
+    throw new KassServerError("validation_error", "Үлдэгдэл тохируулах тоо хэмжээ буруу байна.", 400);
+  }
+
+  try {
+    await assertProductIsStorable(config, uid, productId);
+
+    const adjustment =
+      quantityDelta === 0 ? null : await receiveStockByInventoryAdjustment(config, uid, productId, quantityDelta);
+    const unitCost = Number(input.unit_cost ?? 0);
+
+    if (Number.isFinite(unitCost) && unitCost > 0) {
+      await setOdooProductCost(productId, unitCost);
+    }
+
+    const product = await readProduct(config, uid, productId);
+
+    return {
+      ok: true,
+      product,
+      product_id: productId,
+      quantity_delta: quantityDelta,
+      previous_quantity: adjustment?.previous_quantity ?? null,
+      quantity_available: product.qty_available,
+      location: adjustment?.location ?? null,
+    };
+  } catch (error) {
+    if (error instanceof KassServerError) throw error;
+    throw new KassServerError("stock_receive_failed", "Odoo дээр барааны үлдэгдэл тохируулахад алдаа гарлаа.", 502);
+  }
+}
+
 async function receiveStockByInventoryAdjustment(
   config: OdooConfig,
   uid: number,
@@ -2042,6 +2106,15 @@ async function receiveStockByInventoryAdjustment(
   );
   const currentQuantity = Number(quants[0]?.quantity ?? quants[0]?.available_quantity ?? 0);
   const nextQuantity = currentQuantity + quantity;
+
+  if (nextQuantity < 0) {
+    throw new KassServerError(
+      "validation_error",
+      `Буцаах тоо хэмжээ үлдэгдлээс их байна. Байгаа: ${currentQuantity}, буцаах: ${Math.abs(quantity)}.`,
+      409,
+    );
+  }
+
   const quantValues: Record<string, unknown> = {
     inventory_quantity: nextQuantity,
   };

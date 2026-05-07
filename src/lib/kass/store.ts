@@ -55,10 +55,32 @@ export interface KassSessionEvent {
   created_at: string;
 }
 
+export interface KassStockReceiptRecord {
+  receipt_id: string;
+  product_id: number;
+  product_name: string;
+  quantity: number;
+  unit_cost: number;
+  total_cost: number;
+  partner_id?: number | null;
+  partner_name?: string | null;
+  note?: string | null;
+  odoo_receipt_id?: number | null;
+  odoo_receipt_name?: string | null;
+  odoo_receipt_state?: string | null;
+  location_id?: number | null;
+  location_name?: string | null;
+  status: "active" | "returned";
+  created_at: string;
+  updated_at?: string;
+  returned_at?: string;
+}
+
 interface KassStoreState {
   sessions: Map<string, KassSessionRecord>;
   orders: Map<string, KassOrderRecord[]>;
   events: KassSessionEvent[];
+  stockReceipts: KassStockReceiptRecord[];
   receiptCounter: number;
 }
 
@@ -67,6 +89,7 @@ interface SerializedKassStoreState {
   sessions: KassSessionRecord[];
   orders: Record<string, KassOrderRecord[]>;
   events: KassSessionEvent[];
+  stockReceipts?: KassStockReceiptRecord[];
   receiptCounter: number;
 }
 
@@ -95,6 +118,7 @@ function emptyState(): KassStoreState {
     sessions: new Map(),
     orders: new Map(),
     events: [],
+    stockReceipts: [],
     receiptCounter: 0,
   };
 }
@@ -105,6 +129,7 @@ function serializeState(state: KassStoreState): SerializedKassStoreState {
     sessions: Array.from(state.sessions.values()),
     orders: Object.fromEntries(Array.from(state.orders.entries())),
     events: state.events,
+    stockReceipts: state.stockReceipts,
     receiptCounter: state.receiptCounter,
   };
 }
@@ -113,11 +138,13 @@ function deserializeState(parsed: Partial<SerializedKassStoreState>): KassStoreS
   const sessions = Array.isArray(parsed.sessions) ? parsed.sessions : [];
   const orders = parsed.orders && typeof parsed.orders === "object" ? parsed.orders : {};
   const events = Array.isArray(parsed.events) ? parsed.events : [];
+  const stockReceipts = Array.isArray(parsed.stockReceipts) ? parsed.stockReceipts : [];
 
   return {
     sessions: new Map(sessions.map((session) => [session.session_id, session])),
     orders: new Map(Object.entries(orders)),
     events,
+    stockReceipts,
     receiptCounter: Number.isInteger(parsed.receiptCounter) ? Number(parsed.receiptCounter) : 0,
   };
 }
@@ -216,6 +243,16 @@ function withLockedState<T>(mutate: (state: KassStoreState) => T) {
 function nextId(prefix: string) {
   const random = Math.random().toString(36).slice(2, 8);
   return `${prefix}_${Date.now().toString(36)}_${random}`;
+}
+
+function findStockReceipt(state: KassStoreState, receiptId: string) {
+  const receipt = state.stockReceipts.find((item) => item.receipt_id === receiptId);
+
+  if (!receipt) {
+    throw new KassServerError("stock_receipt_not_found", "Орлогын бүртгэл олдсонгүй.", 404);
+  }
+
+  return receipt;
 }
 
 function pushEvent(
@@ -426,5 +463,89 @@ export function closeSession(sessionId: string, closingCash: number) {
     });
 
     return report;
+  });
+}
+
+export function addStockReceipt(
+  receipt: Omit<KassStockReceiptRecord, "receipt_id" | "status" | "created_at" | "updated_at"> & {
+    receipt_id?: string;
+    status?: KassStockReceiptRecord["status"];
+    created_at?: string;
+  },
+) {
+  return withLockedState((state) => {
+    const createdAt = receipt.created_at ?? new Date().toISOString();
+    const nextReceipt: KassStockReceiptRecord = {
+      receipt_id: receipt.receipt_id ?? nextId("sr"),
+      status: receipt.status ?? "active",
+      created_at: createdAt,
+      updated_at: createdAt,
+      ...receipt,
+    };
+
+    state.stockReceipts.push(nextReceipt);
+    return nextReceipt;
+  });
+}
+
+export function getStockReceipts(options?: { start?: string; end?: string; status?: "active" | "returned" | "all" }) {
+  const startTime = options?.start ? new Date(options.start).getTime() : null;
+  const endTime = options?.end ? new Date(options.end).getTime() : null;
+  const status = options?.status ?? "all";
+
+  return readState()
+    .stockReceipts.filter((receipt) => {
+      if (status !== "all" && receipt.status !== status) return false;
+
+      const createdTime = new Date(receipt.created_at).getTime();
+      if (Number.isNaN(createdTime)) return false;
+      if (startTime !== null && createdTime < startTime) return false;
+      if (endTime !== null && createdTime >= endTime) return false;
+      return true;
+    })
+    .slice()
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+}
+
+export function getStockReceipt(receiptId: string) {
+  return findStockReceipt(readState(), receiptId);
+}
+
+export function updateStockReceipt(
+  receiptId: string,
+  patch: Partial<
+    Pick<
+      KassStockReceiptRecord,
+      "quantity" | "unit_cost" | "total_cost" | "partner_id" | "partner_name" | "note" | "location_id" | "location_name"
+    >
+  >,
+) {
+  return withLockedState((state) => {
+    const receipt = findStockReceipt(state, receiptId);
+
+    if (receipt.status === "returned") {
+      throw new KassServerError("stock_receipt_returned", "Буцаагдсан орлогын бүртгэлийг засах боломжгүй.", 409);
+    }
+
+    Object.assign(receipt, patch, {
+      total_cost: Number(patch.total_cost ?? receipt.total_cost),
+      updated_at: new Date().toISOString(),
+    });
+    return receipt;
+  });
+}
+
+export function returnStockReceipt(receiptId: string) {
+  return withLockedState((state) => {
+    const receipt = findStockReceipt(state, receiptId);
+
+    if (receipt.status === "returned") {
+      throw new KassServerError("stock_receipt_returned", "Энэ орлого аль хэдийн буцаагдсан байна.", 409);
+    }
+
+    receipt.status = "returned";
+    receipt.returned_at = new Date().toISOString();
+    receipt.updated_at = receipt.returned_at;
+    return receipt;
   });
 }

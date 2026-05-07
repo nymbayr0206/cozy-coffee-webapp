@@ -189,6 +189,50 @@ export interface ProductStockInRequest {
   note?: string | null;
 }
 
+export interface KassStockReceipt {
+  receipt_id: string;
+  product_id: number;
+  product_name: string;
+  quantity: number;
+  unit_cost: number;
+  total_cost: number;
+  partner_id?: number | null;
+  partner_name?: string | null;
+  note?: string | null;
+  odoo_receipt_id?: number | null;
+  odoo_receipt_name?: string | null;
+  odoo_receipt_state?: string | null;
+  location_id?: number | null;
+  location_name?: string | null;
+  status: "active" | "returned";
+  created_at: string;
+  updated_at?: string;
+  returned_at?: string;
+}
+
+export interface StockReceiptsResponse {
+  receipts: KassStockReceipt[];
+  active_count: number;
+  returned_count: number;
+  total_quantity: number;
+  total_cost: number;
+}
+
+export interface StockReceiptUpdateRequest {
+  quantity?: number;
+  unit_cost?: number;
+  partner_id?: number | null;
+  partner_name?: string | null;
+  note?: string | null;
+}
+
+export interface StockReceiptMutationResponse {
+  ok: boolean;
+  receipt: KassStockReceipt;
+  product: KassProduct;
+  quantity_delta: number;
+}
+
 export interface ProductStockInResponse {
   ok: boolean;
   product: KassProduct;
@@ -209,6 +253,7 @@ export interface ProductStockInResponse {
     name: string;
   } | null;
   note?: string | null;
+  stock_receipt?: KassStockReceipt;
 }
 
 export interface OdooLoginRequest {

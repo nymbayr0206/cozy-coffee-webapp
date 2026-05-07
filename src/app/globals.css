@@ -2074,6 +2074,10 @@ nextjs-portal {
   display: none;
 }
 
+.warehouse-receipt-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .warehouse-card {
   min-width: 0;
   display: grid;

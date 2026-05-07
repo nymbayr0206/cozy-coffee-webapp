@@ -4,12 +4,14 @@ import { FormEvent, useEffect, useMemo, useState, type ChangeEvent } from "react
 import {
   AlertTriangle,
   Boxes,
+  ClipboardList,
   Edit3,
   ImageIcon,
   Package,
   PackagePlus,
   Plus,
   RefreshCcw,
+  RotateCcw,
   Save,
   Search,
   Tags,
@@ -29,13 +31,16 @@ import {
   getProducts,
   getReadableError,
   getProductUoms,
+  getStockReceipts,
   getWarehouseCategories,
   receiveKassProductStock,
+  returnStockReceipt,
+  updateStockReceipt,
   updateKassProduct,
 } from "@/lib/kass/client-api";
-import type { KassCategory, KassPartner, KassProduct, KassUom, ProductFormRequest } from "@/lib/kass/client-types";
+import type { KassCategory, KassPartner, KassProduct, KassStockReceipt, KassUom, ProductFormRequest } from "@/lib/kass/client-types";
 
-type WarehouseView = "stock" | "categories";
+type WarehouseView = "stock" | "receipts" | "categories";
 
 const emptyStockForm = {
   quantity: "1",
@@ -77,6 +82,24 @@ function stockQuantityText(product: KassProduct) {
   return Number(product.qty_available ?? 0).toLocaleString("mn-MN");
 }
 
+function quantityText(quantity: number) {
+  return Number(quantity).toLocaleString("mn-MN", { maximumFractionDigits: 3 });
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "Байхгүй";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat("mn-MN", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 function productToWarehouseForm(product: KassProduct) {
   return {
     name: product.name,
@@ -98,20 +121,27 @@ export default function WarehousePage() {
   const [categories, setCategories] = useState<KassCategory[]>([]);
   const [uoms, setUoms] = useState<KassUom[]>([]);
   const [partners, setPartners] = useState<KassPartner[]>([]);
+  const [stockReceipts, setStockReceipts] = useState<KassStockReceipt[]>([]);
   const [activeView, setActiveView] = useState<WarehouseView>("stock");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [uomsLoading, setUomsLoading] = useState(true);
   const [partnersLoading, setPartnersLoading] = useState(true);
+  const [receiptsLoading, setReceiptsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [categoryError, setCategoryError] = useState<string | null>(null);
   const [uomError, setUomError] = useState<string | null>(null);
   const [partnerError, setPartnerError] = useState<string | null>(null);
+  const [receiptError, setReceiptError] = useState<string | null>(null);
   const [stockProduct, setStockProduct] = useState<KassProduct | null>(null);
   const [stockForm, setStockForm] = useState(emptyStockForm);
   const [stockSaving, setStockSaving] = useState(false);
   const [stockError, setStockError] = useState<string | null>(null);
+  const [editingReceipt, setEditingReceipt] = useState<KassStockReceipt | null>(null);
+  const [receiptForm, setReceiptForm] = useState(emptyStockForm);
+  const [receiptSaving, setReceiptSaving] = useState(false);
+  const [returningReceiptId, setReturningReceiptId] = useState<string | null>(null);
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<KassProduct | null>(null);
   const [productForm, setProductForm] = useState(emptyWarehouseProductForm);
@@ -184,8 +214,23 @@ export default function WarehousePage() {
     }
   }
 
+  async function loadStockReceipts() {
+    setReceiptsLoading(true);
+    setReceiptError(null);
+
+    try {
+      const response = await getStockReceipts({ status: "all" });
+      setStockReceipts(response.receipts ?? []);
+    } catch (loadError) {
+      setReceiptError(getReadableError(loadError));
+      setStockReceipts([]);
+    } finally {
+      setReceiptsLoading(false);
+    }
+  }
+
   async function refreshWarehouse() {
-    await Promise.all([loadProducts(), loadCategories(), loadUoms(), loadPartners()]);
+    await Promise.all([loadProducts(), loadCategories(), loadUoms(), loadPartners(), loadStockReceipts()]);
   }
 
   useEffect(() => {
@@ -262,6 +307,17 @@ export default function WarehousePage() {
     );
   }, [categories, query]);
 
+  const filteredReceipts = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return stockReceipts;
+
+    return stockReceipts.filter((receipt) =>
+      `${receipt.product_name} ${receipt.partner_name ?? ""} ${receipt.note ?? ""} ${receipt.odoo_receipt_name ?? ""}`
+        .toLowerCase()
+        .includes(normalizedQuery),
+    );
+  }, [query, stockReceipts]);
+
   const summary = useMemo(
     () => ({
       totalItems: stockProducts.length,
@@ -271,7 +327,19 @@ export default function WarehousePage() {
     [stockProducts],
   );
 
-  const activeResultCount = activeView === "categories" ? filteredCategories.length : filtered.length;
+  const receiptSummary = useMemo(
+    () => ({
+      activeCount: stockReceipts.filter((receipt) => receipt.status === "active").length,
+      returnedCount: stockReceipts.filter((receipt) => receipt.status === "returned").length,
+      totalCost: stockReceipts
+        .filter((receipt) => receipt.status === "active")
+        .reduce((sum, receipt) => sum + Number(receipt.total_cost ?? 0), 0),
+    }),
+    [stockReceipts],
+  );
+
+  const activeResultCount =
+    activeView === "categories" ? filteredCategories.length : activeView === "receipts" ? filteredReceipts.length : filtered.length;
   const activeStockUnitName = stockProduct ? formatUnitName(stockProduct.uom_name) : "нэгж";
 
   function openStockModal(product: KassProduct) {
@@ -304,6 +372,23 @@ export default function WarehousePage() {
     setEditingProduct(null);
     setProductForm(emptyWarehouseProductForm);
     setProductFormError(null);
+  }
+
+  function openReceiptEditModal(receipt: KassStockReceipt) {
+    setEditingReceipt(receipt);
+    setReceiptForm({
+      quantity: String(receipt.quantity),
+      unit_cost: String(receipt.unit_cost),
+      partner_id: receipt.partner_id ? String(receipt.partner_id) : "",
+      note: receipt.note ?? "",
+    });
+    setReceiptError(null);
+  }
+
+  function closeReceiptEditModal() {
+    if (receiptSaving) return;
+    setEditingReceipt(null);
+    setReceiptForm(emptyStockForm);
   }
 
   function openCategoryModal() {
@@ -508,10 +593,88 @@ export default function WarehousePage() {
       setStockProduct(null);
       setStockForm(emptyStockForm);
       await loadProducts();
+      await loadStockReceipts();
     } catch (saveError) {
       setStockError(getReadableError(saveError));
     } finally {
       setStockSaving(false);
+    }
+  }
+
+  async function handleReceiptSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingReceipt) return;
+
+    const quantity = Number(receiptForm.quantity);
+    const unitCost = Number(receiptForm.unit_cost);
+    const partnerId = receiptForm.partner_id ? Number(receiptForm.partner_id) : null;
+    const partner = partnerId ? partners.find((item) => item.id === partnerId) : null;
+
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      setReceiptError("Орлогын тоо хэмжээ 0-ээс их байх ёстой.");
+      return;
+    }
+
+    if (!Number.isFinite(unitCost) || unitCost <= 0) {
+      setReceiptError("Нэгж өртөг 0-ээс их байх ёстой.");
+      return;
+    }
+
+    if (partnerId !== null && (!Number.isInteger(partnerId) || partnerId <= 0)) {
+      setReceiptError("Харилцагчийн сонголт буруу байна.");
+      return;
+    }
+
+    setReceiptSaving(true);
+    setReceiptError(null);
+
+    try {
+      const result = await updateStockReceipt(editingReceipt.receipt_id, {
+        quantity,
+        unit_cost: unitCost,
+        partner_id: partnerId,
+        partner_name: partner?.name ?? null,
+        note: receiptForm.note.trim() || null,
+      });
+
+      setStockReceipts((current) =>
+        current.map((receipt) => (receipt.receipt_id === result.receipt.receipt_id ? result.receipt : receipt)),
+      );
+      setProducts((current) =>
+        current.map((product) => (product.id === result.product.id ? result.product : product)),
+      );
+      setEditingReceipt(null);
+      setReceiptForm(emptyStockForm);
+      await loadProducts();
+      await loadStockReceipts();
+    } catch (saveError) {
+      setReceiptError(getReadableError(saveError));
+    } finally {
+      setReceiptSaving(false);
+    }
+  }
+
+  async function handleReceiptReturn(receipt: KassStockReceipt) {
+    const ok = window.confirm(`${receipt.product_name} орлогыг буцааж, үлдэгдлээс ${quantityText(receipt.quantity)} нэгж хасах уу?`);
+    if (!ok) return;
+
+    setReturningReceiptId(receipt.receipt_id);
+    setReceiptError(null);
+
+    try {
+      const result = await returnStockReceipt(receipt.receipt_id);
+      setStockReceipts((current) =>
+        current.map((item) => (item.receipt_id === result.receipt.receipt_id ? result.receipt : item)),
+      );
+      setProducts((current) =>
+        current.map((product) => (product.id === result.product.id ? result.product : product)),
+      );
+      await loadProducts();
+      await loadStockReceipts();
+    } catch (returnError) {
+      setReceiptError(getReadableError(returnError));
+    } finally {
+      setReturningReceiptId(null);
     }
   }
 
@@ -522,7 +685,13 @@ export default function WarehousePage() {
           <div>
             <p className="eyebrow">Агуулах</p>
             <div className="heading-line">
-              <h2>{activeView === "categories" ? "Агуулахын ангилал" : "Үлдэгдэл ба орлого"}</h2>
+              <h2>
+                {activeView === "categories"
+                  ? "Агуулахын ангилал"
+                  : activeView === "receipts"
+                    ? "Орлогын түүх"
+                    : "Үлдэгдэл ба орлого"}
+              </h2>
               {!loading && !categoriesLoading ? <span className="soft-pill">{activeResultCount} илэрц</span> : null}
             </div>
           </div>
@@ -539,7 +708,7 @@ export default function WarehousePage() {
               className="secondary-button"
               type="button"
               onClick={refreshWarehouse}
-              disabled={loading || partnersLoading || categoriesLoading || uomsLoading}
+              disabled={loading || partnersLoading || categoriesLoading || uomsLoading || receiptsLoading}
             >
               <RefreshCcw size={16} aria-hidden="true" />
               <span>{loading ? "Уншиж байна" : "Шинэчлэх"}</span>
@@ -559,6 +728,18 @@ export default function WarehousePage() {
             <Warehouse size={16} aria-hidden="true" />
             <span>Агуулахын бараа</span>
             <strong>{stockProducts.length}</strong>
+          </button>
+          <button
+            className={activeView === "receipts" ? "filter-tab active" : "filter-tab"}
+            type="button"
+            role="tab"
+            aria-selected={activeView === "receipts"}
+            onClick={() => setActiveView("receipts")}
+            data-testid="warehouse-receipts-tab"
+          >
+            <ClipboardList size={16} aria-hidden="true" />
+            <span>Орлогын түүх</span>
+            <strong>{stockReceipts.length}</strong>
           </button>
           <button
             className={activeView === "categories" ? "filter-tab active" : "filter-tab"}
@@ -768,6 +949,153 @@ export default function WarehousePage() {
                   ) : (
                     <tr>
                       <td colSpan={8}>Агуулахын бараа олдсонгүй.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : activeView === "receipts" ? (
+          <>
+            {receiptError ? <div className="inline-error">{receiptError}</div> : null}
+
+            <div className="report-kpi-grid warehouse-receipt-metrics">
+              <div className="metric strong-metric">
+                <span>Идэвхтэй орлого</span>
+                <strong>{receiptSummary.activeCount}</strong>
+              </div>
+              <div className="metric">
+                <span>Буцаагдсан</span>
+                <strong>{receiptSummary.returnedCount}</strong>
+              </div>
+              <div className="metric">
+                <span>Нийт өртөг</span>
+                <strong>{formatMoney(receiptSummary.totalCost)}</strong>
+              </div>
+            </div>
+
+            <div className="warehouse-card-list">
+              {receiptsLoading ? (
+                Array.from({ length: 5 }).map((_, index) => <div className="row-skeleton" key={index} />)
+              ) : filteredReceipts.length > 0 ? (
+                filteredReceipts.map((receipt) => {
+                  const isReturned = receipt.status === "returned";
+
+                  return (
+                    <article className="warehouse-card" key={receipt.receipt_id}>
+                      <span className="product-thumb placeholder" aria-hidden="true">
+                        <ClipboardList size={18} />
+                      </span>
+                      <div className="warehouse-card-main">
+                        <strong>{receipt.product_name}</strong>
+                        <span>{formatDateTime(receipt.created_at)}</span>
+                        <div className="warehouse-card-meta">
+                          <span>Тоо: {quantityText(receipt.quantity)}</span>
+                          <span>Нэгж өртөг: {formatMoney(receipt.unit_cost)}</span>
+                          <span>Нийт: {formatMoney(receipt.total_cost)}</span>
+                          <span>{receipt.partner_name || "Харилцагчгүй"}</span>
+                        </div>
+                      </div>
+                      <div className="warehouse-card-actions">
+                        <button
+                          className="secondary-button compact-button"
+                          type="button"
+                          onClick={() => openReceiptEditModal(receipt)}
+                          disabled={isReturned}
+                        >
+                          <Edit3 size={16} aria-hidden="true" />
+                          <span>Засах</span>
+                        </button>
+                        <button
+                          className="danger-button compact-button"
+                          type="button"
+                          onClick={() => handleReceiptReturn(receipt)}
+                          disabled={isReturned || returningReceiptId === receipt.receipt_id}
+                        >
+                          <RotateCcw size={16} aria-hidden="true" />
+                          <span>{isReturned ? "Буцаагдсан" : "Буцаах"}</span>
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })
+              ) : (
+                <div className="state-box">Орлогын бүртгэл олдсонгүй.</div>
+              )}
+            </div>
+
+            <div className="table-wrap warehouse-table-wrap">
+              <table className="data-table product-table">
+                <thead>
+                  <tr>
+                    <th>Огноо</th>
+                    <th>Бараа</th>
+                    <th>Тоо</th>
+                    <th>Нэгж өртөг</th>
+                    <th>Нийт</th>
+                    <th>Харилцагч</th>
+                    <th>Төлөв</th>
+                    <th>Үйлдэл</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {receiptsLoading ? (
+                    Array.from({ length: 6 }).map((_, index) => (
+                      <tr key={index}>
+                        <td colSpan={8}>
+                          <div className="row-skeleton" />
+                        </td>
+                      </tr>
+                    ))
+                  ) : filteredReceipts.length > 0 ? (
+                    filteredReceipts.map((receipt) => {
+                      const isReturned = receipt.status === "returned";
+
+                      return (
+                        <tr key={receipt.receipt_id}>
+                          <td>{formatDateTime(receipt.created_at)}</td>
+                          <td>
+                            <strong>{receipt.product_name}</strong>
+                            {receipt.note ? <small className="table-subtext">{receipt.note}</small> : null}
+                            {receipt.odoo_receipt_name ? <small className="table-subtext">Odoo: {receipt.odoo_receipt_name}</small> : null}
+                          </td>
+                          <td>{quantityText(receipt.quantity)}</td>
+                          <td>{formatMoney(receipt.unit_cost)}</td>
+                          <td>{formatMoney(receipt.total_cost)}</td>
+                          <td>{receipt.partner_name || "Сонгоогүй"}</td>
+                          <td>
+                            <span className={isReturned ? "soft-pill muted-pill" : "soft-pill"}>
+                              {isReturned ? "Буцаагдсан" : "Идэвхтэй"}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="table-actions warehouse-actions">
+                              <button
+                                className="icon-button"
+                                type="button"
+                                onClick={() => openReceiptEditModal(receipt)}
+                                disabled={isReturned}
+                                aria-label="Орлого засах"
+                              >
+                                <Edit3 size={16} aria-hidden="true" />
+                              </button>
+                              <button
+                                className="icon-button danger"
+                                type="button"
+                                onClick={() => handleReceiptReturn(receipt)}
+                                disabled={isReturned || returningReceiptId === receipt.receipt_id}
+                                aria-label="Орлого буцаах"
+                              >
+                                <RotateCcw size={16} aria-hidden="true" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={8}>Орлогын бүртгэл олдсонгүй.</td>
                     </tr>
                   )}
                 </tbody>
@@ -1043,6 +1371,103 @@ export default function WarehousePage() {
               <button className="primary-button" type="submit" disabled={categorySaving}>
                 <Save size={17} aria-hidden="true" />
                 <span>{categorySaving ? "Хадгалж байна" : "Хадгалах"}</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {editingReceipt ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="receipt-edit-title">
+          <form className="modal-card narrow-modal" onSubmit={handleReceiptSubmit} data-testid="warehouse-receipt-edit-modal">
+            <button
+              className="icon-button modal-close"
+              type="button"
+              aria-label="Хаах"
+              onClick={closeReceiptEditModal}
+              disabled={receiptSaving}
+            >
+              <X size={18} aria-hidden="true" />
+            </button>
+            <p className="eyebrow">Агуулахын орлого</p>
+            <h2 id="receipt-edit-title">Орлого засах</h2>
+            <div className="stock-product-card">
+              <span>{editingReceipt.product_name}</span>
+              <strong>{formatDateTime(editingReceipt.created_at)}</strong>
+              <small>{editingReceipt.odoo_receipt_name ? `Odoo: ${editingReceipt.odoo_receipt_name}` : "Кассын орлогын бүртгэл"}</small>
+            </div>
+
+            <div className="form-grid two-columns">
+              <label className="field">
+                <span>Тоо хэмжээ</span>
+                <input
+                  type="number"
+                  min="0.000001"
+                  step="any"
+                  inputMode="decimal"
+                  value={receiptForm.quantity}
+                  onChange={(event) => setReceiptForm((current) => ({ ...current, quantity: event.target.value }))}
+                  required
+                />
+              </label>
+              <label className="field">
+                <span>Нэгж өртөг</span>
+                <input
+                  type="number"
+                  min="0.000001"
+                  step="any"
+                  inputMode="decimal"
+                  value={receiptForm.unit_cost}
+                  onChange={(event) => setReceiptForm((current) => ({ ...current, unit_cost: event.target.value }))}
+                  required
+                />
+              </label>
+            </div>
+
+            <div className="stock-cost-preview">
+              <span>Шинэ нийт өртөг</span>
+              <strong>
+                {formatMoney(
+                  Number.isFinite(Number(receiptForm.quantity)) && Number.isFinite(Number(receiptForm.unit_cost))
+                    ? Number(receiptForm.quantity) * Number(receiptForm.unit_cost)
+                    : 0,
+                )}
+              </strong>
+            </div>
+
+            <label className="field">
+              <span>Харилцагч</span>
+              <select
+                value={receiptForm.partner_id}
+                onChange={(event) => setReceiptForm((current) => ({ ...current, partner_id: event.target.value }))}
+                disabled={partnersLoading}
+              >
+                <option value="">Сонгохгүй</option>
+                {partners.map((partner) => (
+                  <option key={partner.id} value={partner.id}>
+                    {partner.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="field">
+              <span>Тэмдэглэл</span>
+              <textarea
+                value={receiptForm.note}
+                onChange={(event) => setReceiptForm((current) => ({ ...current, note: event.target.value }))}
+              />
+            </label>
+
+            {receiptError ? <div className="form-error">{receiptError}</div> : null}
+
+            <div className="modal-actions">
+              <button className="secondary-button" type="button" onClick={closeReceiptEditModal} disabled={receiptSaving}>
+                Болих
+              </button>
+              <button className="primary-button" type="submit" disabled={receiptSaving}>
+                <Save size={17} aria-hidden="true" />
+                <span>{receiptSaving ? "Хадгалж байна" : "Хадгалах"}</span>
               </button>
             </div>
           </form>

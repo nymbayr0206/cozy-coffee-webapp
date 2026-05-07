@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { jsonError, KassServerError } from "@/lib/kass/errors";
 import { receiveOdooProductStock } from "@/lib/kass/odoo";
+import { addStockReceipt } from "@/lib/kass/store";
 import { parseNumber, readJsonBody } from "@/lib/kass/validation";
 
 export const runtime = "nodejs";
@@ -49,8 +50,23 @@ export async function POST(request: Request, context: ProductParams) {
       partner_id: partnerId,
       note,
     });
+    const stockReceipt = addStockReceipt({
+      product_id: productId,
+      product_name: result.product.name,
+      quantity,
+      unit_cost: unitCost,
+      total_cost: quantity * unitCost,
+      partner_id: result.partner?.id ?? partnerId,
+      partner_name: result.partner?.name ?? null,
+      note: result.note ?? note,
+      odoo_receipt_id: result.receipt?.id ?? null,
+      odoo_receipt_name: result.receipt?.name ?? null,
+      odoo_receipt_state: result.receipt?.state ?? null,
+      location_id: result.location?.id ?? null,
+      location_name: result.location?.name ?? null,
+    });
 
-    return NextResponse.json(result);
+    return NextResponse.json({ ...result, stock_receipt: stockReceipt });
   } catch (error) {
     return jsonError(error);
   }

@@ -33,6 +33,9 @@ import type {
   SalesReportPeriod,
   SalesReportResponse,
   SessionsResponse,
+  StockReceiptMutationResponse,
+  StockReceiptsResponse,
+  StockReceiptUpdateRequest,
   UomsResponse,
   UomDeleteResponse,
   UomFormRequest,
@@ -59,6 +62,8 @@ const errorMessages: Record<string, string> = {
   partner_delete_failed: "Харилцагч устгахад алдаа гарлаа.",
   stock_location_not_found: "Odoo агуулахын байршил олдсонгүй.",
   stock_receive_failed: "Барааны орлого авахад алдаа гарлаа.",
+  stock_receipt_not_found: "Орлогын бүртгэл олдсонгүй.",
+  stock_receipt_returned: "Энэ орлого аль хэдийн буцаагдсан байна.",
   recipe_save_failed: "Барааны жор хадгалахад алдаа гарлаа.",
   session_not_found: "Ээлж олдсонгүй. Шинэ ээлж нээгээд дахин оролдоно уу.",
   session_already_open: "Касс дээр ээлж аль хэдийн нээгдсэн байна.",
@@ -249,6 +254,33 @@ export function receiveKassProductStock(productId: number, body: ProductStockInR
   return request<ProductStockInResponse>(`/products/${encodeURIComponent(productId)}/stock-in`, {
     method: "POST",
     body: JSON.stringify(body),
+  });
+}
+
+export function getStockReceipts(options?: {
+  start?: string;
+  end?: string;
+  status?: "active" | "returned" | "all";
+}) {
+  const query = new URLSearchParams();
+  if (options?.start) query.set("start", options.start);
+  if (options?.end) query.set("end", options.end);
+  if (options?.status) query.set("status", options.status);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+
+  return request<StockReceiptsResponse>(`/stock-receipts${suffix}`);
+}
+
+export function updateStockReceipt(receiptId: string, body: StockReceiptUpdateRequest) {
+  return request<StockReceiptMutationResponse>(`/stock-receipts/${encodeURIComponent(receiptId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function returnStockReceipt(receiptId: string) {
+  return request<StockReceiptMutationResponse>(`/stock-receipts/${encodeURIComponent(receiptId)}`, {
+    method: "DELETE",
   });
 }
 

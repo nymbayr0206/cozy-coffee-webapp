@@ -14,6 +14,8 @@ export type KassErrorCode =
   | "category_delete_failed"
   | "stock_location_not_found"
   | "stock_receive_failed"
+  | "stock_receipt_not_found"
+  | "stock_receipt_returned"
   | "qpay_invoice_failed"
   | "qpay_check_failed"
   | "session_already_open"
