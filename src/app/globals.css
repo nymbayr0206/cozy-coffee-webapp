@@ -2013,6 +2013,170 @@ nextjs-portal {
   gap: 9px;
 }
 
+.report-dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.report-category-panel {
+  grid-row: span 2;
+}
+
+.report-chart-panel {
+  align-content: start;
+}
+
+.report-chart-list,
+.top-product-list,
+.payment-donut-legend {
+  display: grid;
+  gap: 10px;
+}
+
+.report-chart-row {
+  display: grid;
+  gap: 7px;
+}
+
+.report-chart-row-head,
+.report-chart-meta,
+.top-product-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.report-chart-row-head strong,
+.top-product-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.report-chart-row-head span {
+  flex: 0 0 auto;
+  font-weight: 800;
+}
+
+.report-chart-meta span,
+.top-product-row small,
+.payment-donut-legend small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.report-chart-track {
+  height: 10px;
+  overflow: hidden;
+  background: #edf1f5;
+  border-radius: 999px;
+}
+
+.report-chart-fill {
+  height: 100%;
+  border-radius: inherit;
+}
+
+.top-product-row {
+  align-items: flex-start;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.top-product-row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.top-product-row > span {
+  flex: 0 0 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--teal);
+  font-size: 12px;
+  font-weight: 850;
+  background: #f2edf1;
+  border-radius: 999px;
+}
+
+.top-product-row > div {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 5px;
+}
+
+.top-product-row > strong {
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+.payment-donut-wrap {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 156px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.payment-donut {
+  width: 156px;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.payment-donut > div {
+  width: 96px;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 2px;
+  text-align: center;
+  background: #ffffff;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.payment-donut span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 740;
+}
+
+.payment-donut strong {
+  max-width: 82px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.payment-donut-legend div {
+  display: grid;
+  grid-template-columns: 10px minmax(70px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.payment-donut-legend span {
+  width: 10px;
+  height: 10px;
+  display: inline-block;
+  background: #cbd5e1;
+  border-radius: 50%;
+}
+
+.payment-donut-legend strong {
+  font-size: 13px;
+}
+
 .warehouse-kpi-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-bottom: 12px;
@@ -2595,8 +2759,13 @@ nextjs-portal {
   }
 
   .dashboard-layout,
-  .dashboard-layout.lower {
+  .dashboard-layout.lower,
+  .report-dashboard-grid {
     grid-template-columns: 1fr;
+  }
+
+  .report-category-panel {
+    grid-row: auto;
   }
 
   .dashboard-kpi-grid {
@@ -2897,6 +3066,15 @@ nextjs-portal {
   .period-tabs,
   .report-kpi-grid {
     grid-template-columns: 1fr;
+  }
+
+  .payment-donut-wrap {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .payment-donut-legend {
+    width: 100%;
   }
 
   .warehouse-card-list {

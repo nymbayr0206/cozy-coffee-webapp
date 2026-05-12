@@ -426,6 +426,7 @@ export interface KassOrderSummary {
 export interface SalesProductSummary {
   product_id: number;
   name: string;
+  category?: string | null;
   quantity: number;
   total: number;
   orders_count: number;

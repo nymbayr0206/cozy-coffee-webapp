@@ -2397,12 +2397,69 @@ function normalizeOdooDateTime(value: string | false | undefined) {
   return `${value.replace(" ", "T")}Z`;
 }
 
-function summarizeSaleOrderLines(lines: OdooSaleOrderLineRecord[]) {
+async function getProductCategoryMap(config: OdooConfig, uid: number, productIds: number[]) {
+  const uniqueProductIds = Array.from(new Set(productIds.filter((productId) => productId > 0)));
+  if (uniqueProductIds.length === 0) return new Map<number, string | null>();
+
+  const productFields = await getFieldNames(config, uid, "product.product");
+  const productReadFields = ["id", "categ_id", "product_tmpl_id", "pos_categ_ids"].filter((field) =>
+    productFields.has(field),
+  );
+  const products = await executeKw<OdooProductRecord[]>(config, uid, "product.product", "read", [
+    uniqueProductIds,
+    productReadFields,
+  ]);
+  const categoryByProduct = new Map<number, string | null>();
+  const productTemplateIds = products
+    .map((product) => relationId(product.product_tmpl_id))
+    .filter((templateId): templateId is number => Boolean(templateId));
+
+  let posCategoryMap = new Map<number, string>();
+  if (productFields.has("pos_categ_ids")) {
+    posCategoryMap = await getPosCategoryMap(config, uid);
+  }
+
+  products.forEach((product) => {
+    const posCategoryIds = Array.isArray(product.pos_categ_ids) ? product.pos_categ_ids : [];
+    const posCategory = posCategoryIds.map((categoryId) => posCategoryMap.get(categoryId)).find(Boolean);
+    categoryByProduct.set(product.id, posCategory ?? relationName(product.categ_id));
+  });
+
+  if (productTemplateIds.length > 0) {
+    const templateFields = await getFieldNames(config, uid, "product.template");
+    const templateReadFields = ["id", "categ_id", "pos_categ_ids"].filter((field) => templateFields.has(field));
+    const templates = await executeKw<OdooProductRecord[]>(config, uid, "product.template", "read", [
+      Array.from(new Set(productTemplateIds)),
+      templateReadFields,
+    ]);
+    const templatePosCategoryMap = templateFields.has("pos_categ_ids") ? await getPosCategoryMap(config, uid) : new Map<number, string>();
+    const categoryByTemplate = new Map<number, string | null>();
+
+    templates.forEach((template) => {
+      const posCategoryIds = Array.isArray(template.pos_categ_ids) ? template.pos_categ_ids : [];
+      const posCategory = posCategoryIds.map((categoryId) => templatePosCategoryMap.get(categoryId)).find(Boolean);
+      categoryByTemplate.set(template.id, posCategory ?? relationName(template.categ_id));
+    });
+
+    products.forEach((product) => {
+      const currentCategory = categoryByProduct.get(product.id);
+      const templateId = relationId(product.product_tmpl_id);
+      if (!currentCategory && templateId) {
+        categoryByProduct.set(product.id, categoryByTemplate.get(templateId) ?? null);
+      }
+    });
+  }
+
+  return categoryByProduct;
+}
+
+function summarizeSaleOrderLines(lines: OdooSaleOrderLineRecord[], categoryByProduct = new Map<number, string | null>()) {
   const byProduct = new Map<
     number,
     {
       product_id: number;
       name: string;
+      category: string | null;
       quantity: number;
       total: number;
       orderIds: Set<number>;
@@ -2424,6 +2481,7 @@ function summarizeSaleOrderLines(lines: OdooSaleOrderLineRecord[]) {
       {
         product_id: productId,
         name: relationName(line.product_id) ?? `Product ${productId}`,
+        category: categoryByProduct.get(productId) ?? null,
         quantity: 0,
         total: 0,
         orderIds: new Set<number>(),
@@ -2440,6 +2498,7 @@ function summarizeSaleOrderLines(lines: OdooSaleOrderLineRecord[]) {
     .map((product) => ({
       product_id: product.product_id,
       name: product.name,
+      category: product.category,
       quantity: Math.round(product.quantity * 1000) / 1000,
       total: Math.round(product.total * 100) / 100,
       orders_count: product.orderIds.size,
@@ -2511,7 +2570,11 @@ export async function getOdooSalesReport(startIso: string, endIso: string) {
           },
         )
       : [];
-  const products = summarizeSaleOrderLines(orderLines);
+  const saleProductIds = orderLines
+    .map((line) => relationId(line.product_id))
+    .filter((productId): productId is number => Boolean(productId));
+  const categoryByProduct = await getProductCategoryMap(config, uid, saleProductIds);
+  const products = summarizeSaleOrderLines(orderLines, categoryByProduct);
 
   const orders = records.map((record) => {
     const total = Number(record.amount_total ?? 0);

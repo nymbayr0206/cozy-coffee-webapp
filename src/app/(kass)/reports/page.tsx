@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, CalendarDays, ClipboardList, Package, RefreshCcw } from "lucide-react";
+import { BarChart3, CalendarDays, ClipboardList, Package, PieChart, RefreshCcw, Trophy } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { formatMoney, getReadableError, getSalesReport, getStockReceipts, paymentMethodLabel } from "@/lib/kass/client-api";
 import type { KassOrderSummary, KassStockReceipt, SalesReportPeriod, SalesReportResponse } from "@/lib/kass/client-types";
@@ -26,6 +26,8 @@ const monthLabels = [
   "11-р сар",
   "12-р сар",
 ];
+
+const chartColors = ["#7a4d6f", "#0f766e", "#2563eb", "#b45309", "#be123c", "#475569"];
 
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -163,6 +165,11 @@ function makeBuckets(orders: KassOrderSummary[], period: SalesReportPeriod, star
   }));
 }
 
+function makePercent(value: number, max: number) {
+  if (max <= 0) return 0;
+  return Math.max(4, Math.round((value / max) * 100));
+}
+
 export default function ReportsPage() {
   const [period, setPeriod] = useState<SalesReportPeriod>("day");
   const [anchorDate, setAnchorDate] = useState(() => toDateInputValue(new Date()));
@@ -175,6 +182,57 @@ export default function ReportsPage() {
   const productRows = report?.products ?? [];
   const topProduct = productRows[0] ?? null;
   const buckets = useMemo(() => makeBuckets(orders, period, start, end), [end, orders, period, start]);
+  const categoryRows = useMemo(() => {
+    const byCategory = new Map<string, { name: string; total: number; quantity: number; productCount: number }>();
+
+    productRows.forEach((product) => {
+      const categoryName = product.category || "Ангилалгүй";
+      const current = byCategory.get(categoryName) ?? {
+        name: categoryName,
+        total: 0,
+        quantity: 0,
+        productCount: 0,
+      };
+      current.total += Number(product.total ?? 0);
+      current.quantity += Number(product.quantity ?? 0);
+      current.productCount += 1;
+      byCategory.set(categoryName, current);
+    });
+
+    return Array.from(byCategory.values()).sort((a, b) => b.total - a.total || b.quantity - a.quantity);
+  }, [productRows]);
+  const topProducts = useMemo(() => productRows.slice(0, 6), [productRows]);
+  const maxCategoryTotal = Math.max(...categoryRows.map((category) => category.total), 0);
+  const maxProductTotal = Math.max(...topProducts.map((product) => product.total), 0);
+  const paymentBreakdown = useMemo(
+    () =>
+      [
+        { label: "Бэлэн", value: Number(report?.cash_total ?? 0), color: chartColors[1] },
+        { label: "Карт", value: Number(report?.card_total ?? 0), color: chartColors[2] },
+        { label: "QPay", value: Number(report?.qpay_total ?? 0), color: chartColors[0] },
+        { label: "Дансаар", value: Number(report?.bank_total ?? 0), color: chartColors[5] },
+        { label: "Зээлээр", value: Number(report?.credit_total ?? 0), color: chartColors[3] },
+        { label: "Бусад", value: Number(report?.other_total ?? 0), color: chartColors[4] },
+      ].filter((item) => item.value > 0),
+    [report],
+  );
+  const paymentTotal = paymentBreakdown.reduce((sum, item) => sum + item.value, 0);
+  const paymentGradient =
+    paymentTotal > 0
+      ? paymentBreakdown
+          .reduce(
+            (state, item) => {
+              const startPercent = state.current;
+              const endPercent = startPercent + (item.value / paymentTotal) * 100;
+              return {
+                current: endPercent,
+                parts: [...state.parts, `${item.color} ${startPercent.toFixed(2)}% ${endPercent.toFixed(2)}%`],
+              };
+            },
+            { current: 0, parts: [] as string[] },
+          )
+          .parts.join(", ")
+      : "#edf1f5 0% 100%";
   const stockReceiptSummary = useMemo(
     () =>
       stockReceipts.reduce(
@@ -296,6 +354,125 @@ export default function ReportsPage() {
           <div className="metric">
             <span>Бусад</span>
             <strong>{formatMoney(report?.other_total)}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="report-dashboard-grid">
+        <div className="content-panel report-chart-panel report-category-panel">
+          <div className="panel-toolbar">
+            <div>
+              <p className="eyebrow">Ангилал</p>
+              <h2>Борлуулалт ангиллаар</h2>
+              <p className="muted-text small">{categoryRows.length} ангилал · {productRows.length} бараа</p>
+            </div>
+            <BarChart3 size={22} aria-hidden="true" />
+          </div>
+
+          {categoryRows.length > 0 ? (
+            <div className="report-chart-list">
+              {categoryRows.slice(0, 8).map((category, index) => (
+                <div className="report-chart-row" key={category.name}>
+                  <div className="report-chart-row-head">
+                    <strong>{category.name}</strong>
+                    <span>{formatMoney(category.total)}</span>
+                  </div>
+                  <div className="report-chart-track">
+                    <div
+                      className="report-chart-fill"
+                      style={{
+                        width: `${makePercent(category.total, maxCategoryTotal)}%`,
+                        background: chartColors[index % chartColors.length],
+                      }}
+                    />
+                  </div>
+                  <div className="report-chart-meta">
+                    <span>{formatQuantity(category.quantity)} ш</span>
+                    <span>{category.productCount} бараа</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="compact-empty">
+              <Package size={22} aria-hidden="true" />
+              <span>{loading ? "Ангиллын график уншиж байна." : "Ангиллаар харуулах борлуулалт алга байна."}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="content-panel report-chart-panel">
+          <div className="panel-toolbar">
+            <div>
+              <p className="eyebrow">Бараа</p>
+              <h2>Шилдэг бүтээгдэхүүн</h2>
+            </div>
+            <Trophy size={22} aria-hidden="true" />
+          </div>
+
+          {topProducts.length > 0 ? (
+            <div className="top-product-list">
+              {topProducts.map((product, index) => (
+                <div className="top-product-row" key={product.product_id}>
+                  <span>{index + 1}</span>
+                  <div>
+                    <strong>{product.name}</strong>
+                    <small>{product.category || "Ангилалгүй"} · {formatQuantity(product.quantity)} ш</small>
+                    <div className="report-chart-track">
+                      <div
+                        className="report-chart-fill"
+                        style={{
+                          width: `${makePercent(product.total, maxProductTotal)}%`,
+                          background: chartColors[index % chartColors.length],
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <strong>{formatMoney(product.total)}</strong>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="compact-empty">
+              <Package size={22} aria-hidden="true" />
+              <span>{loading ? "Барааны график уншиж байна." : "Барааны борлуулалт алга байна."}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="content-panel report-chart-panel">
+          <div className="panel-toolbar">
+            <div>
+              <p className="eyebrow">Төлбөр</p>
+              <h2>Төлбөрийн mix</h2>
+            </div>
+            <PieChart size={22} aria-hidden="true" />
+          </div>
+
+          <div className="payment-donut-wrap">
+            <div className="payment-donut" style={{ background: `conic-gradient(${paymentGradient})` }}>
+              <div>
+                <span>Нийт</span>
+                <strong>{formatMoney(paymentTotal)}</strong>
+              </div>
+            </div>
+            <div className="payment-donut-legend">
+              {paymentBreakdown.length > 0 ? (
+                paymentBreakdown.map((item) => (
+                  <div key={item.label}>
+                    <span style={{ background: item.color }} />
+                    <strong>{item.label}</strong>
+                    <small>{formatMoney(item.value)}</small>
+                  </div>
+                ))
+              ) : (
+                <div>
+                  <span />
+                  <strong>Борлуулалт</strong>
+                  <small>Алга байна</small>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </section>

@@ -1185,7 +1185,7 @@ export default function WarehousePage() {
                   {receiptsLoading ? (
                     Array.from({ length: 6 }).map((_, index) => (
                       <tr key={index}>
-                        <td colSpan={10}>
+                        <td colSpan={11}>
                           <div className="row-skeleton" />
                         </td>
                       </tr>
@@ -1241,7 +1241,7 @@ export default function WarehousePage() {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={10}>Орлогын бүртгэл олдсонгүй.</td>
+                      <td colSpan={11}>Орлогын бүртгэл олдсонгүй.</td>
                     </tr>
                   )}
                 </tbody>
@@ -1306,34 +1306,63 @@ export default function WarehousePage() {
             </section>
 
             <div className="table-wrap">
-              <table className="data-table">
+              <table className="data-table product-table">
                 <thead>
                   <tr>
                     <th>Огноо</th>
                     <th>Бараа</th>
+                    <th>Тоо</th>
+                    <th>Нэгж өртөг</th>
                     <th>Харилцагч</th>
                     <th>Төлбөр</th>
                     <th>Бэлэн</th>
                     <th>Зээл</th>
                     <th>Нийт</th>
+                    <th>Төлөв</th>
+                    <th>Үйлдэл</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredReceipts.length > 0 ? (
-                    filteredReceipts.map((receipt) => (
-                      <tr key={receipt.receipt_id}>
-                        <td>{formatDateTime(receipt.created_at)}</td>
-                        <td><strong>{receipt.product_name}</strong></td>
-                        <td>{receipt.partner_name || "Сонгоогүй"}</td>
-                        <td>{stockPaymentLabel(receipt.payment_method ?? (inferReceiptCreditAmount(receipt) > 0 ? "credit" : "cash"))}</td>
-                        <td>{formatMoney(inferReceiptPaidAmount(receipt))}</td>
-                        <td>{formatMoney(inferReceiptCreditAmount(receipt))}</td>
-                        <td>{formatMoney(receipt.total_cost)}</td>
-                      </tr>
-                    ))
+                    filteredReceipts.map((receipt) => {
+                      const isReturned = receipt.status === "returned";
+
+                      return (
+                        <tr key={receipt.receipt_id}>
+                          <td>{formatDateTime(receipt.created_at)}</td>
+                          <td>
+                            <strong>{receipt.product_name}</strong>
+                            {receipt.note ? <small className="table-subtext">{receipt.note}</small> : null}
+                          </td>
+                          <td>{quantityText(receipt.quantity)}</td>
+                          <td>{formatMoney(receipt.unit_cost)}</td>
+                          <td>{receipt.partner_name || "Сонгоогүй"}</td>
+                          <td>{stockPaymentLabel(receipt.payment_method ?? (inferReceiptCreditAmount(receipt) > 0 ? "credit" : "cash"))}</td>
+                          <td>{formatMoney(inferReceiptPaidAmount(receipt))}</td>
+                          <td>{formatMoney(inferReceiptCreditAmount(receipt))}</td>
+                          <td>{formatMoney(receipt.total_cost)}</td>
+                          <td>
+                            <span className={isReturned ? "soft-pill muted-pill" : "soft-pill"}>
+                              {isReturned ? "Буцаагдсан" : "Идэвхтэй"}
+                            </span>
+                          </td>
+                          <td>
+                            <button
+                              className="icon-button"
+                              type="button"
+                              onClick={() => openReceiptEditModal(receipt)}
+                              disabled={isReturned}
+                              aria-label="Орлого засах"
+                            >
+                              <Edit3 size={16} aria-hidden="true" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
                   ) : (
                     <tr>
-                      <td colSpan={7}>Орлогын бүртгэл олдсонгүй.</td>
+                      <td colSpan={11}>Орлогын бүртгэл олдсонгүй.</td>
                     </tr>
                   )}
                 </tbody>
