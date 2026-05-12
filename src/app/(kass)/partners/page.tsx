@@ -24,6 +24,7 @@ interface PartnerFormState {
   email: string;
   company_register: string;
   bank_account: string;
+  is_contact: boolean;
   is_supplier: boolean;
   is_customer: boolean;
 }
@@ -34,7 +35,8 @@ const emptyPartnerForm: PartnerFormState = {
   email: "",
   company_register: "",
   bank_account: "",
-  is_supplier: true,
+  is_contact: true,
+  is_supplier: false,
   is_customer: false,
 };
 
@@ -45,6 +47,7 @@ function partnerToForm(partner: KassPartner): PartnerFormState {
     email: partner.email ?? "",
     company_register: partner.company_register ?? "",
     bank_account: partner.bank_account ?? "",
+    is_contact: Number(partner.supplier_rank ?? 0) <= 0 && Number(partner.customer_rank ?? 0) <= 0,
     is_supplier: Number(partner.supplier_rank ?? 0) > 0,
     is_customer: Number(partner.customer_rank ?? 0) > 0,
   };
@@ -57,7 +60,7 @@ function partnerTypeLabel(partner: KassPartner) {
   if (isSupplier && isCustomer) return "Нийлүүлэгч, хэрэглэгч";
   if (isSupplier) return "Нийлүүлэгч";
   if (isCustomer) return "Хэрэглэгч";
-  return "Ерөнхий";
+  return "Харилцагч";
 }
 
 export default function PartnersPage() {
@@ -113,6 +116,9 @@ export default function PartnersPage() {
   const summary = useMemo(
     () => ({
       total: partners.length,
+      contacts: partners.filter(
+        (partner) => Number(partner.supplier_rank ?? 0) <= 0 && Number(partner.customer_rank ?? 0) <= 0,
+      ).length,
       suppliers: partners.filter((partner) => Number(partner.supplier_rank ?? 0) > 0).length,
       customers: partners.filter((partner) => Number(partner.customer_rank ?? 0) > 0).length,
     }),
@@ -164,8 +170,8 @@ export default function PartnersPage() {
         email: form.email.trim() || null,
         company_register: form.company_register.trim() || null,
         bank_account: form.bank_account.trim() || null,
-        is_supplier: form.is_supplier,
-        is_customer: form.is_customer,
+        is_supplier: form.is_contact ? false : form.is_supplier,
+        is_customer: form.is_contact ? false : form.is_customer,
       };
       const response = editingPartner
         ? await updatePartner(editingPartner.id, body)
@@ -236,6 +242,11 @@ export default function PartnersPage() {
           </div>
           <div className="metric">
             <Building2 size={22} aria-hidden="true" />
+            <span>Харилцагч</span>
+            <strong>{summary.contacts}</strong>
+          </div>
+          <div className="metric">
+            <Building2 size={22} aria-hidden="true" />
             <span>Нийлүүлэгч</span>
             <strong>{summary.suppliers}</strong>
           </div>
@@ -300,7 +311,7 @@ export default function PartnersPage() {
                         {Number(partner.supplier_rank ?? 0) > 0 ? <span className="soft-pill">Нийлүүлэгч</span> : null}
                         {Number(partner.customer_rank ?? 0) > 0 ? <span className="soft-pill">Хэрэглэгч</span> : null}
                         {Number(partner.supplier_rank ?? 0) <= 0 && Number(partner.customer_rank ?? 0) <= 0 ? (
-                          <span className="soft-pill">Ерөнхий</span>
+                          <span className="soft-pill">Харилцагч</span>
                         ) : null}
                       </div>
                     </td>
@@ -462,12 +473,33 @@ export default function PartnersPage() {
               </label>
             </div>
 
-            <div className="form-grid two-columns">
+            <div className="form-grid three-columns">
+              <label className="switch-field">
+                <input
+                  type="checkbox"
+                  checked={form.is_contact}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      is_contact: event.target.checked,
+                      is_supplier: event.target.checked ? false : current.is_supplier,
+                      is_customer: event.target.checked ? false : current.is_customer,
+                    }))
+                  }
+                />
+                <span>Харилцагч</span>
+              </label>
               <label className="switch-field">
                 <input
                   type="checkbox"
                   checked={form.is_supplier}
-                  onChange={(event) => setForm((current) => ({ ...current, is_supplier: event.target.checked }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      is_contact: event.target.checked ? false : current.is_contact,
+                      is_supplier: event.target.checked,
+                    }))
+                  }
                 />
                 <span>Нийлүүлэгч</span>
               </label>
@@ -475,7 +507,13 @@ export default function PartnersPage() {
                 <input
                   type="checkbox"
                   checked={form.is_customer}
-                  onChange={(event) => setForm((current) => ({ ...current, is_customer: event.target.checked }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      is_contact: event.target.checked ? false : current.is_contact,
+                      is_customer: event.target.checked,
+                    }))
+                  }
                 />
                 <span>Хэрэглэгч</span>
               </label>

@@ -4,6 +4,7 @@ import {
   Banknote,
   Clock3,
   CreditCard,
+  HandCoins,
   Landmark,
   QrCode,
   ReceiptText,
@@ -41,14 +42,16 @@ export default function DashboardPage() {
   const cardTotal = Number(report?.card_total ?? 0);
   const qpayTotal = Number(report?.qpay_total ?? 0);
   const bankTotal = Number(report?.bank_total ?? 0);
+  const creditTotal = Number(report?.credit_total ?? 0);
   const ordersCount = Number(report?.orders_count ?? 0);
   const openingCash = Number(report?.opening_cash ?? 0);
   const expectedCash = Number(report?.expected_cash ?? openingCash + cashTotal);
-  const paymentsTotal = cashTotal + cardTotal + qpayTotal + bankTotal;
+  const paymentsTotal = cashTotal + cardTotal + qpayTotal + bankTotal + creditTotal;
   const cashRatio = paymentsTotal > 0 ? Math.round((cashTotal / paymentsTotal) * 100) : 0;
   const cardRatio = paymentsTotal > 0 ? Math.round((cardTotal / paymentsTotal) * 100) : 0;
   const qpayRatio = paymentsTotal > 0 ? Math.round((qpayTotal / paymentsTotal) * 100) : 0;
-  const bankRatio = paymentsTotal > 0 ? Math.max(0, 100 - cashRatio - cardRatio - qpayRatio) : 0;
+  const bankRatio = paymentsTotal > 0 ? Math.round((bankTotal / paymentsTotal) * 100) : 0;
+  const creditRatio = paymentsTotal > 0 ? Math.max(0, 100 - cashRatio - cardRatio - qpayRatio - bankRatio) : 0;
   const recentOrders = (report?.orders ?? []).slice(0, 5);
 
   const paymentCards = [
@@ -56,6 +59,7 @@ export default function DashboardPage() {
     { label: "Карт", value: cardTotal, ratio: cardRatio, icon: CreditCard, tone: "blue" },
     { label: "QPay", value: qpayTotal, ratio: qpayRatio, icon: QrCode, tone: "amber" },
     { label: "Дансаар", value: bankTotal, ratio: bankRatio, icon: Landmark, tone: "slate" },
+    { label: "Зээлээр", value: creditTotal, ratio: creditRatio, icon: HandCoins, tone: "rose" },
   ];
 
   return (
@@ -125,6 +129,7 @@ export default function DashboardPage() {
             <span className="mix-card" style={{ width: `${cardRatio}%` }} />
             <span className="mix-qpay" style={{ width: `${qpayRatio}%` }} />
             <span className="mix-bank" style={{ width: `${bankRatio}%` }} />
+            <span className="mix-credit" style={{ width: `${creditRatio}%` }} />
           </div>
 
           <div className="dashboard-payment-grid">
@@ -222,6 +227,10 @@ export default function DashboardPage() {
             <div>
               <span>Дижитал төлбөр</span>
               <strong>{formatMoney(cardTotal + qpayTotal + bankTotal)}</strong>
+            </div>
+            <div>
+              <span>Зээлээр</span>
+              <strong>{formatMoney(creditTotal)}</strong>
             </div>
             <div>
               <span>Ээлжийн төлөв</span>

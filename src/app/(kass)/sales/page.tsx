@@ -164,6 +164,10 @@ function SalesPageContent() {
             <strong>{formatMoney(displayReport?.bank_total)}</strong>
           </div>
           <div className="metric">
+            <span>Зээлээр</span>
+            <strong>{formatMoney(displayReport?.credit_total)}</strong>
+          </div>
+          <div className="metric">
             <span>Захиалга</span>
             <strong>{Number(displayReport?.orders_count ?? 0)}</strong>
           </div>

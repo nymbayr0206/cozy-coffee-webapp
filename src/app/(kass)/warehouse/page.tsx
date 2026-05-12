@@ -38,14 +38,25 @@ import {
   updateStockReceipt,
   updateKassProduct,
 } from "@/lib/kass/client-api";
-import type { KassCategory, KassPartner, KassProduct, KassStockReceipt, KassUom, ProductFormRequest } from "@/lib/kass/client-types";
+import type {
+  KassCategory,
+  KassPartner,
+  KassProduct,
+  KassStockReceipt,
+  KassUom,
+  ProductFormRequest,
+  StockReceiptPaymentMethod,
+} from "@/lib/kass/client-types";
 
-type WarehouseView = "stock" | "receipts" | "categories";
+type WarehouseView = "stock" | "receipts" | "receipt-report" | "categories";
 
 const emptyStockForm = {
   quantity: "1",
   unit_cost: "",
   partner_id: "",
+  payment_method: "credit" as StockReceiptPaymentMethod,
+  paid_amount: "",
+  credit_amount: "",
   note: "",
 };
 
@@ -98,6 +109,47 @@ function formatDateTime(value?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function stockPaymentLabel(method?: StockReceiptPaymentMethod | string | null) {
+  if (method === "cash") return "Бэлэн";
+  if (method === "credit") return "Зээлээр";
+  if (method === "mixed") return "Хувааж";
+  return "Тодорхойгүй";
+}
+
+function inferReceiptPaidAmount(receipt: KassStockReceipt) {
+  if (receipt.paid_amount !== undefined) return Number(receipt.paid_amount ?? 0);
+  if (receipt.payment_method === "credit") return 0;
+  return Number(receipt.total_cost ?? 0);
+}
+
+function inferReceiptCreditAmount(receipt: KassStockReceipt) {
+  if (receipt.credit_amount !== undefined) return Number(receipt.credit_amount ?? 0);
+  if (receipt.payment_method === "credit") return Number(receipt.total_cost ?? 0);
+  return 0;
+}
+
+function resolveStockPayment(
+  form: typeof emptyStockForm,
+  totalCost: number,
+): { payment_method: StockReceiptPaymentMethod; paid_amount: number; credit_amount: number } {
+  if (form.payment_method === "cash") {
+    return { payment_method: "cash", paid_amount: totalCost, credit_amount: 0 };
+  }
+
+  if (form.payment_method === "credit") {
+    return { payment_method: "credit", paid_amount: 0, credit_amount: totalCost };
+  }
+
+  const paidAmount = Number(form.paid_amount || 0);
+  const creditAmount = Number(form.credit_amount || 0);
+
+  return {
+    payment_method: paidAmount > 0 && creditAmount > 0 ? "mixed" : paidAmount > 0 ? "cash" : "credit",
+    paid_amount: Math.round(paidAmount * 100) / 100,
+    credit_amount: Math.round(creditAmount * 100) / 100,
+  };
 }
 
 function productToWarehouseForm(product: KassProduct) {
@@ -328,19 +380,63 @@ export default function WarehousePage() {
   );
 
   const receiptSummary = useMemo(
-    () => ({
-      activeCount: stockReceipts.filter((receipt) => receipt.status === "active").length,
-      returnedCount: stockReceipts.filter((receipt) => receipt.status === "returned").length,
-      totalCost: stockReceipts
-        .filter((receipt) => receipt.status === "active")
-        .reduce((sum, receipt) => sum + Number(receipt.total_cost ?? 0), 0),
-    }),
+    () => {
+      const activeReceipts = stockReceipts.filter((receipt) => receipt.status === "active");
+      const byPartner = new Map<
+        string,
+        {
+          partnerName: string;
+          totalCost: number;
+          paidAmount: number;
+          creditAmount: number;
+          count: number;
+        }
+      >();
+
+      activeReceipts.forEach((receipt) => {
+        const key = receipt.partner_id ? String(receipt.partner_id) : "none";
+        const current =
+          byPartner.get(key) ?? {
+            partnerName: receipt.partner_name || "Харилцагчгүй",
+            totalCost: 0,
+            paidAmount: 0,
+            creditAmount: 0,
+            count: 0,
+          };
+        current.totalCost += Number(receipt.total_cost ?? 0);
+        current.paidAmount += inferReceiptPaidAmount(receipt);
+        current.creditAmount += inferReceiptCreditAmount(receipt);
+        current.count += 1;
+        byPartner.set(key, current);
+      });
+
+      return {
+        activeCount: activeReceipts.length,
+        returnedCount: stockReceipts.filter((receipt) => receipt.status === "returned").length,
+        totalCost: activeReceipts.reduce((sum, receipt) => sum + Number(receipt.total_cost ?? 0), 0),
+        paidAmount: activeReceipts.reduce((sum, receipt) => sum + inferReceiptPaidAmount(receipt), 0),
+        creditAmount: activeReceipts.reduce((sum, receipt) => sum + inferReceiptCreditAmount(receipt), 0),
+        byPartner: Array.from(byPartner.values()).sort((a, b) => b.creditAmount - a.creditAmount || b.totalCost - a.totalCost),
+      };
+    },
     [stockReceipts],
   );
 
   const activeResultCount =
-    activeView === "categories" ? filteredCategories.length : activeView === "receipts" ? filteredReceipts.length : filtered.length;
+    activeView === "categories"
+      ? filteredCategories.length
+      : activeView === "receipts" || activeView === "receipt-report"
+        ? filteredReceipts.length
+        : filtered.length;
   const activeStockUnitName = stockProduct ? formatUnitName(stockProduct.uom_name) : "нэгж";
+  const stockFormTotalCost =
+    Number.isFinite(Number(stockForm.quantity)) && Number.isFinite(Number(stockForm.unit_cost))
+      ? Number(stockForm.quantity) * Number(stockForm.unit_cost)
+      : 0;
+  const receiptFormTotalCost =
+    Number.isFinite(Number(receiptForm.quantity)) && Number.isFinite(Number(receiptForm.unit_cost))
+      ? Number(receiptForm.quantity) * Number(receiptForm.unit_cost)
+      : 0;
 
   function openStockModal(product: KassProduct) {
     setStockProduct(product);
@@ -380,6 +476,9 @@ export default function WarehousePage() {
       quantity: String(receipt.quantity),
       unit_cost: String(receipt.unit_cost),
       partner_id: receipt.partner_id ? String(receipt.partner_id) : "",
+      payment_method: receipt.payment_method ?? "cash",
+      paid_amount: String(inferReceiptPaidAmount(receipt)),
+      credit_amount: String(inferReceiptCreditAmount(receipt)),
       note: receipt.note ?? "",
     });
     setReceiptError(null);
@@ -560,6 +659,8 @@ export default function WarehousePage() {
     const quantity = Number(stockForm.quantity);
     const unitCost = Number(stockForm.unit_cost);
     const partnerId = stockForm.partner_id ? Number(stockForm.partner_id) : null;
+    const totalCost = Math.round(quantity * unitCost * 100) / 100;
+    const payment = resolveStockPayment(stockForm, totalCost);
 
     if (!Number.isFinite(quantity) || quantity <= 0) {
       setStockError("Орлого авах тоо хэмжээ 0-ээс их байх ёстой.");
@@ -576,6 +677,11 @@ export default function WarehousePage() {
       return;
     }
 
+    if (Math.abs(payment.paid_amount + payment.credit_amount - totalCost) > 0.01) {
+      setStockError("Бэлэн болон зээлийн дүн нийлээд нийт өртөгтэй тэнцэх ёстой.");
+      return;
+    }
+
     setStockSaving(true);
     setStockError(null);
 
@@ -584,6 +690,7 @@ export default function WarehousePage() {
         quantity,
         unit_cost: unitCost,
         partner_id: partnerId,
+        ...payment,
         note: stockForm.note.trim() || null,
       });
 
@@ -609,6 +716,8 @@ export default function WarehousePage() {
     const unitCost = Number(receiptForm.unit_cost);
     const partnerId = receiptForm.partner_id ? Number(receiptForm.partner_id) : null;
     const partner = partnerId ? partners.find((item) => item.id === partnerId) : null;
+    const totalCost = Math.round(quantity * unitCost * 100) / 100;
+    const payment = resolveStockPayment(receiptForm, totalCost);
 
     if (!Number.isFinite(quantity) || quantity <= 0) {
       setReceiptError("Орлогын тоо хэмжээ 0-ээс их байх ёстой.");
@@ -625,6 +734,11 @@ export default function WarehousePage() {
       return;
     }
 
+    if (Math.abs(payment.paid_amount + payment.credit_amount - totalCost) > 0.01) {
+      setReceiptError("Бэлэн болон зээлийн дүн нийлээд нийт өртөгтэй тэнцэх ёстой.");
+      return;
+    }
+
     setReceiptSaving(true);
     setReceiptError(null);
 
@@ -634,6 +748,7 @@ export default function WarehousePage() {
         unit_cost: unitCost,
         partner_id: partnerId,
         partner_name: partner?.name ?? null,
+        ...payment,
         note: receiptForm.note.trim() || null,
       });
 
@@ -690,6 +805,8 @@ export default function WarehousePage() {
                   ? "Агуулахын ангилал"
                   : activeView === "receipts"
                     ? "Орлогын түүх"
+                    : activeView === "receipt-report"
+                      ? "Орлогын тайлан"
                     : "Үлдэгдэл ба орлого"}
               </h2>
               {!loading && !categoriesLoading ? <span className="soft-pill">{activeResultCount} илэрц</span> : null}
@@ -740,6 +857,18 @@ export default function WarehousePage() {
             <ClipboardList size={16} aria-hidden="true" />
             <span>Орлогын түүх</span>
             <strong>{stockReceipts.length}</strong>
+          </button>
+          <button
+            className={activeView === "receipt-report" ? "filter-tab active" : "filter-tab"}
+            type="button"
+            role="tab"
+            aria-selected={activeView === "receipt-report"}
+            onClick={() => setActiveView("receipt-report")}
+            data-testid="warehouse-receipt-report-tab"
+          >
+            <ClipboardList size={16} aria-hidden="true" />
+            <span>Орлогын тайлан</span>
+            <strong>{receiptSummary.activeCount}</strong>
           </button>
           <button
             className={activeView === "categories" ? "filter-tab active" : "filter-tab"}
@@ -972,6 +1101,14 @@ export default function WarehousePage() {
                 <span>Нийт өртөг</span>
                 <strong>{formatMoney(receiptSummary.totalCost)}</strong>
               </div>
+              <div className="metric">
+                <span>Бэлнээр</span>
+                <strong>{formatMoney(receiptSummary.paidAmount)}</strong>
+              </div>
+              <div className="metric">
+                <span>Зээлээр</span>
+                <strong>{formatMoney(receiptSummary.creditAmount)}</strong>
+              </div>
             </div>
 
             <div className="warehouse-card-list">
@@ -993,6 +1130,9 @@ export default function WarehousePage() {
                           <span>Тоо: {quantityText(receipt.quantity)}</span>
                           <span>Нэгж өртөг: {formatMoney(receipt.unit_cost)}</span>
                           <span>Нийт: {formatMoney(receipt.total_cost)}</span>
+                          <span>Төлбөр: {stockPaymentLabel(receipt.payment_method ?? (inferReceiptCreditAmount(receipt) > 0 ? "credit" : "cash"))}</span>
+                          <span>Бэлэн: {formatMoney(inferReceiptPaidAmount(receipt))}</span>
+                          <span>Зээл: {formatMoney(inferReceiptCreditAmount(receipt))}</span>
                           <span>{receipt.partner_name || "Харилцагчгүй"}</span>
                         </div>
                       </div>
@@ -1034,6 +1174,9 @@ export default function WarehousePage() {
                     <th>Нэгж өртөг</th>
                     <th>Нийт</th>
                     <th>Харилцагч</th>
+                    <th>Төлбөр</th>
+                    <th>Бэлэн</th>
+                    <th>Зээл</th>
                     <th>Төлөв</th>
                     <th>Үйлдэл</th>
                   </tr>
@@ -1042,7 +1185,7 @@ export default function WarehousePage() {
                   {receiptsLoading ? (
                     Array.from({ length: 6 }).map((_, index) => (
                       <tr key={index}>
-                        <td colSpan={8}>
+                        <td colSpan={10}>
                           <div className="row-skeleton" />
                         </td>
                       </tr>
@@ -1063,6 +1206,9 @@ export default function WarehousePage() {
                           <td>{formatMoney(receipt.unit_cost)}</td>
                           <td>{formatMoney(receipt.total_cost)}</td>
                           <td>{receipt.partner_name || "Сонгоогүй"}</td>
+                          <td>{stockPaymentLabel(receipt.payment_method ?? (inferReceiptCreditAmount(receipt) > 0 ? "credit" : "cash"))}</td>
+                          <td>{formatMoney(inferReceiptPaidAmount(receipt))}</td>
+                          <td>{formatMoney(inferReceiptCreditAmount(receipt))}</td>
                           <td>
                             <span className={isReturned ? "soft-pill muted-pill" : "soft-pill"}>
                               {isReturned ? "Буцаагдсан" : "Идэвхтэй"}
@@ -1095,7 +1241,99 @@ export default function WarehousePage() {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={8}>Орлогын бүртгэл олдсонгүй.</td>
+                      <td colSpan={10}>Орлогын бүртгэл олдсонгүй.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : activeView === "receipt-report" ? (
+          <>
+            <div className="report-kpi-grid warehouse-receipt-metrics">
+              <div className="metric strong-metric">
+                <span>Нийт орлого</span>
+                <strong>{formatMoney(receiptSummary.totalCost)}</strong>
+              </div>
+              <div className="metric">
+                <span>Бэлнээр төлсөн</span>
+                <strong>{formatMoney(receiptSummary.paidAmount)}</strong>
+              </div>
+              <div className="metric">
+                <span>Өглөг / зээл</span>
+                <strong>{formatMoney(receiptSummary.creditAmount)}</strong>
+              </div>
+            </div>
+
+            <section className="embedded-panel">
+              <div className="panel-toolbar">
+                <div>
+                  <p className="eyebrow">Орлогын тайлан</p>
+                  <h2>Харилцагчаар</h2>
+                </div>
+                <span className="soft-pill">{receiptSummary.byPartner.length} мөр</span>
+              </div>
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Харилцагч</th>
+                      <th>Орлого</th>
+                      <th>Бэлэн</th>
+                      <th>Зээл</th>
+                      <th>Тоо</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {receiptSummary.byPartner.length > 0 ? (
+                      receiptSummary.byPartner.map((row) => (
+                        <tr key={row.partnerName}>
+                          <td><strong>{row.partnerName}</strong></td>
+                          <td>{formatMoney(row.totalCost)}</td>
+                          <td>{formatMoney(row.paidAmount)}</td>
+                          <td>{formatMoney(row.creditAmount)}</td>
+                          <td>{row.count}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5}>Орлогын тайлан гаргах бүртгэл алга байна.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Огноо</th>
+                    <th>Бараа</th>
+                    <th>Харилцагч</th>
+                    <th>Төлбөр</th>
+                    <th>Бэлэн</th>
+                    <th>Зээл</th>
+                    <th>Нийт</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredReceipts.length > 0 ? (
+                    filteredReceipts.map((receipt) => (
+                      <tr key={receipt.receipt_id}>
+                        <td>{formatDateTime(receipt.created_at)}</td>
+                        <td><strong>{receipt.product_name}</strong></td>
+                        <td>{receipt.partner_name || "Сонгоогүй"}</td>
+                        <td>{stockPaymentLabel(receipt.payment_method ?? (inferReceiptCreditAmount(receipt) > 0 ? "credit" : "cash"))}</td>
+                        <td>{formatMoney(inferReceiptPaidAmount(receipt))}</td>
+                        <td>{formatMoney(inferReceiptCreditAmount(receipt))}</td>
+                        <td>{formatMoney(receipt.total_cost)}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={7}>Орлогын бүртгэл олдсонгүй.</td>
                     </tr>
                   )}
                 </tbody>
@@ -1451,6 +1689,63 @@ export default function WarehousePage() {
               </select>
             </label>
 
+            <div className="payment-method-panel stock-payment-panel">
+              <div>
+                <h3>Төлбөрийн хэлбэр</h3>
+                <p className="muted-text">Нийт өртөг: {formatMoney(receiptFormTotalCost)}</p>
+              </div>
+              <div className="period-tabs" role="tablist" aria-label="Орлогын төлбөрийн хэлбэр">
+                {(["cash", "credit", "mixed"] as StockReceiptPaymentMethod[]).map((option) => (
+                  <button
+                    key={option}
+                    className={receiptForm.payment_method === option ? "period-tab active" : "period-tab"}
+                    type="button"
+                    onClick={() =>
+                      setReceiptForm((current) => ({
+                        ...current,
+                        payment_method: option,
+                        paid_amount: option === "cash" ? String(receiptFormTotalCost) : option === "credit" ? "0" : current.paid_amount,
+                        credit_amount: option === "credit" ? String(receiptFormTotalCost) : option === "cash" ? "0" : current.credit_amount,
+                      }))
+                    }
+                  >
+                    {stockPaymentLabel(option)}
+                  </button>
+                ))}
+              </div>
+              {receiptForm.payment_method === "mixed" ? (
+                <div className="form-grid two-columns">
+                  <label className="field">
+                    <span>Бэлнээр төлсөн</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      inputMode="decimal"
+                      value={receiptForm.paid_amount}
+                      onChange={(event) => setReceiptForm((current) => ({ ...current, paid_amount: event.target.value }))}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Зээлд үлдсэн</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      inputMode="decimal"
+                      value={receiptForm.credit_amount}
+                      onChange={(event) => setReceiptForm((current) => ({ ...current, credit_amount: event.target.value }))}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div className="stock-cost-preview">
+                  <span>{receiptForm.payment_method === "cash" ? "Бэлнээр төлөх" : "Зээлд үлдэх"}</span>
+                  <strong>{formatMoney(receiptFormTotalCost)}</strong>
+                </div>
+              )}
+            </div>
+
             <label className="field">
               <span>Тэмдэглэл</span>
               <textarea
@@ -1565,6 +1860,63 @@ export default function WarehousePage() {
                 </small>
               )}
             </label>
+
+            <div className="payment-method-panel stock-payment-panel">
+              <div>
+                <h3>Төлбөрийн хэлбэр</h3>
+                <p className="muted-text">Нийт өртөг: {formatMoney(stockFormTotalCost)}</p>
+              </div>
+              <div className="period-tabs" role="tablist" aria-label="Орлогын төлбөрийн хэлбэр">
+                {(["cash", "credit", "mixed"] as StockReceiptPaymentMethod[]).map((option) => (
+                  <button
+                    key={option}
+                    className={stockForm.payment_method === option ? "period-tab active" : "period-tab"}
+                    type="button"
+                    onClick={() =>
+                      setStockForm((current) => ({
+                        ...current,
+                        payment_method: option,
+                        paid_amount: option === "cash" ? String(stockFormTotalCost) : option === "credit" ? "0" : current.paid_amount,
+                        credit_amount: option === "credit" ? String(stockFormTotalCost) : option === "cash" ? "0" : current.credit_amount,
+                      }))
+                    }
+                  >
+                    {stockPaymentLabel(option)}
+                  </button>
+                ))}
+              </div>
+              {stockForm.payment_method === "mixed" ? (
+                <div className="form-grid two-columns">
+                  <label className="field">
+                    <span>Бэлнээр төлсөн</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      inputMode="decimal"
+                      value={stockForm.paid_amount}
+                      onChange={(event) => setStockForm((current) => ({ ...current, paid_amount: event.target.value }))}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Зээлд үлдсэн</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      inputMode="decimal"
+                      value={stockForm.credit_amount}
+                      onChange={(event) => setStockForm((current) => ({ ...current, credit_amount: event.target.value }))}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div className="stock-cost-preview">
+                  <span>{stockForm.payment_method === "cash" ? "Бэлнээр төлөх" : "Зээлд үлдэх"}</span>
+                  <strong>{formatMoney(stockFormTotalCost)}</strong>
+                </div>
+              )}
+            </div>
 
             <label className="field">
               <span>Тэмдэглэл</span>

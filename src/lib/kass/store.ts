@@ -29,6 +29,8 @@ export interface KassOrderRecord {
   session_id: string;
   payment_method: OrderPaymentMethod;
   payment_parts?: PaymentPart[];
+  partner_id?: number | null;
+  partner_name?: string | null;
   total: number;
   lines: Array<{
     product_id: number;
@@ -47,6 +49,8 @@ export interface KassSessionEvent {
   receipt_number?: string;
   payment_method?: OrderPaymentMethod;
   payment_parts?: PaymentPart[];
+  partner_id?: number | null;
+  partner_name?: string | null;
   amount?: number;
   opening_cash?: number;
   closing_cash?: number;
@@ -64,6 +68,9 @@ export interface KassStockReceiptRecord {
   total_cost: number;
   partner_id?: number | null;
   partner_name?: string | null;
+  payment_method?: "cash" | "credit" | "mixed";
+  paid_amount?: number;
+  credit_amount?: number;
   note?: string | null;
   odoo_receipt_id?: number | null;
   odoo_receipt_name?: string | null;
@@ -76,11 +83,22 @@ export interface KassStockReceiptRecord {
   returned_at?: string;
 }
 
+export interface KassFinanceSettlementRecord {
+  settlement_id: string;
+  type: "payable" | "receivable";
+  partner_id?: number | null;
+  partner_name: string;
+  amount: number;
+  note?: string | null;
+  created_at: string;
+}
+
 interface KassStoreState {
   sessions: Map<string, KassSessionRecord>;
   orders: Map<string, KassOrderRecord[]>;
   events: KassSessionEvent[];
   stockReceipts: KassStockReceiptRecord[];
+  financeSettlements: KassFinanceSettlementRecord[];
   receiptCounter: number;
 }
 
@@ -90,6 +108,7 @@ interface SerializedKassStoreState {
   orders: Record<string, KassOrderRecord[]>;
   events: KassSessionEvent[];
   stockReceipts?: KassStockReceiptRecord[];
+  financeSettlements?: KassFinanceSettlementRecord[];
   receiptCounter: number;
 }
 
@@ -119,6 +138,7 @@ function emptyState(): KassStoreState {
     orders: new Map(),
     events: [],
     stockReceipts: [],
+    financeSettlements: [],
     receiptCounter: 0,
   };
 }
@@ -130,6 +150,7 @@ function serializeState(state: KassStoreState): SerializedKassStoreState {
     orders: Object.fromEntries(Array.from(state.orders.entries())),
     events: state.events,
     stockReceipts: state.stockReceipts,
+    financeSettlements: state.financeSettlements,
     receiptCounter: state.receiptCounter,
   };
 }
@@ -139,12 +160,14 @@ function deserializeState(parsed: Partial<SerializedKassStoreState>): KassStoreS
   const orders = parsed.orders && typeof parsed.orders === "object" ? parsed.orders : {};
   const events = Array.isArray(parsed.events) ? parsed.events : [];
   const stockReceipts = Array.isArray(parsed.stockReceipts) ? parsed.stockReceipts : [];
+  const financeSettlements = Array.isArray(parsed.financeSettlements) ? parsed.financeSettlements : [];
 
   return {
     sessions: new Map(sessions.map((session) => [session.session_id, session])),
     orders: new Map(Object.entries(orders)),
     events,
     stockReceipts,
+    financeSettlements,
     receiptCounter: Number.isInteger(parsed.receiptCounter) ? Number(parsed.receiptCounter) : 0,
   };
 }
@@ -301,7 +324,8 @@ function calculateReport(session: KassSessionRecord, orders: KassOrderRecord[]) 
   const card_total = orders.reduce((sum, order) => sum + paymentAmount(order, "card"), 0);
   const qpay_total = orders.reduce((sum, order) => sum + paymentAmount(order, "qpay"), 0);
   const bank_total = orders.reduce((sum, order) => sum + paymentAmount(order, "bank"), 0);
-  const total_sales = cash_total + card_total + qpay_total + bank_total;
+  const credit_total = orders.reduce((sum, order) => sum + paymentAmount(order, "credit"), 0);
+  const total_sales = cash_total + card_total + qpay_total + bank_total + credit_total;
   const expected_cash = session.opening_cash + cash_total;
 
   return {
@@ -312,6 +336,7 @@ function calculateReport(session: KassSessionRecord, orders: KassOrderRecord[]) 
     card_total,
     qpay_total,
     bank_total,
+    credit_total,
     orders_count: orders.length,
     expected_cash,
     cash_difference: session.closing_cash === undefined ? undefined : session.closing_cash - expected_cash,
@@ -399,6 +424,8 @@ export function addOrder(order: KassOrderRecord) {
       receipt_number: order.receipt_number,
       payment_method: order.payment_method,
       payment_parts: order.payment_parts,
+      partner_id: order.partner_id,
+      partner_name: order.partner_name,
       amount: order.total,
       created_at: order.created_at,
     });
@@ -507,6 +534,34 @@ export function getStockReceipts(options?: { start?: string; end?: string; statu
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
+export function addFinanceSettlement(
+  settlement: Omit<KassFinanceSettlementRecord, "settlement_id" | "created_at"> & {
+    settlement_id?: string;
+    created_at?: string;
+  },
+) {
+  return withLockedState((state) => {
+    const nextSettlement: KassFinanceSettlementRecord = {
+      settlement_id: settlement.settlement_id ?? nextId("fs"),
+      created_at: settlement.created_at ?? new Date().toISOString(),
+      ...settlement,
+      amount: Math.round(Number(settlement.amount ?? 0) * 100) / 100,
+    };
+
+    state.financeSettlements.push(nextSettlement);
+    return nextSettlement;
+  });
+}
+
+export function getFinanceSettlements(options?: { type?: "payable" | "receivable" }) {
+  const type = options?.type;
+
+  return readState()
+    .financeSettlements.filter((settlement) => (type ? settlement.type === type : true))
+    .slice()
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+}
+
 export function getStockReceipt(receiptId: string) {
   return findStockReceipt(readState(), receiptId);
 }
@@ -516,7 +571,17 @@ export function updateStockReceipt(
   patch: Partial<
     Pick<
       KassStockReceiptRecord,
-      "quantity" | "unit_cost" | "total_cost" | "partner_id" | "partner_name" | "note" | "location_id" | "location_name"
+      | "quantity"
+      | "unit_cost"
+      | "total_cost"
+      | "partner_id"
+      | "partner_name"
+      | "payment_method"
+      | "paid_amount"
+      | "credit_amount"
+      | "note"
+      | "location_id"
+      | "location_name"
     >
   >,
 ) {

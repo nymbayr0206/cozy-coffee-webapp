@@ -2347,6 +2347,7 @@ function parseKassPaymentMethod(note: string | false | undefined) {
   if (value.includes("payment method: card")) return "card";
   if (value.includes("payment method: qpay")) return "qpay";
   if (value.includes("payment method: bank")) return "bank";
+  if (value.includes("payment method: credit")) return "credit";
   return "other";
 }
 
@@ -2357,7 +2358,7 @@ function parseKassPaymentParts(note: string | false | undefined, total: number):
   if (match) {
     const parts = match[1]
       .split(/[;,]/)
-      .map((part) => part.trim().match(/^(cash|card|qpay|bank)\s*=\s*([0-9]+(?:\.[0-9]+)?)/i))
+      .map((part) => part.trim().match(/^(cash|card|qpay|bank|credit)\s*=\s*([0-9]+(?:\.[0-9]+)?)/i))
       .filter((part): part is RegExpMatchArray => Boolean(part))
       .map((part) => ({
         method: part[1].toLowerCase() as PaymentPart["method"],
@@ -2369,7 +2370,13 @@ function parseKassPaymentParts(note: string | false | undefined, total: number):
   }
 
   const paymentMethod = parseKassPaymentMethod(note);
-  if (paymentMethod === "cash" || paymentMethod === "card" || paymentMethod === "qpay" || paymentMethod === "bank") {
+  if (
+    paymentMethod === "cash" ||
+    paymentMethod === "card" ||
+    paymentMethod === "qpay" ||
+    paymentMethod === "bank" ||
+    paymentMethod === "credit"
+  ) {
     return [{ method: paymentMethod, amount: total }];
   }
 
@@ -2538,12 +2545,16 @@ export async function getOdooSalesReport(startIso: string, endIso: string) {
       const bankAmount = order.payment_parts
         .filter((payment) => payment.method === "bank")
         .reduce((total, payment) => total + payment.amount, 0);
-      const knownTotal = cashAmount + cardAmount + qpayAmount + bankAmount;
+      const creditAmount = order.payment_parts
+        .filter((payment) => payment.method === "credit")
+        .reduce((total, payment) => total + payment.amount, 0);
+      const knownTotal = cashAmount + cardAmount + qpayAmount + bankAmount + creditAmount;
 
       sum.cash_total += cashAmount;
       sum.card_total += cardAmount;
       sum.qpay_total += qpayAmount;
       sum.bank_total += bankAmount;
+      sum.credit_total += creditAmount;
       sum.other_total += Math.max(0, order.total - knownTotal);
       return sum;
     },
@@ -2553,6 +2564,7 @@ export async function getOdooSalesReport(startIso: string, endIso: string) {
       card_total: 0,
       qpay_total: 0,
       bank_total: 0,
+      credit_total: 0,
       other_total: 0,
       orders_count: 0,
     },
@@ -2746,6 +2758,7 @@ export async function createOdooSaleOrder(
   lines: Array<{ product_id: number; quantity: number; price: number }>,
   paymentMethod: string,
   payments: PaymentPart[],
+  partnerId?: number | null,
 ) {
   const config = getOdooConfig();
   const uid = await authenticate(config);
@@ -2762,7 +2775,7 @@ export async function createOdooSaleOrder(
 
     const orderId = await executeKw<number>(config, uid, "sale.order", "create", [
       {
-        partner_id: config.defaultPartnerId,
+        partner_id: partnerId ?? config.defaultPartnerId,
         note: formatPaymentNote(paymentMethod, payments),
         order_line: lines.map((line) => [
           0,

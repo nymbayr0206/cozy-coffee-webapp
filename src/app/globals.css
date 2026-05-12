@@ -1095,6 +1095,10 @@ nextjs-portal {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.form-grid.three-columns {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .image-upload-box {
   display: grid;
   gap: 12px;
@@ -1233,7 +1237,7 @@ nextjs-portal {
 
 .payment-tabs {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1263,6 +1267,21 @@ nextjs-portal {
 
 .payment-method-panel h3 {
   margin: 0 0 6px;
+}
+
+.stock-payment-panel {
+  grid-template-columns: 1fr;
+  align-items: start;
+}
+
+.stock-payment-panel .period-tabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.embedded-panel {
+  display: grid;
+  gap: 12px;
+  padding: 4px 0 14px;
 }
 
 .qr-placeholder,
@@ -1713,6 +1732,10 @@ nextjs-portal {
   grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
 }
 
+.dashboard-layout.finance-balance-layout {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .dashboard-main-panel,
 .cash-check-panel,
 .insight-panel {
@@ -1748,9 +1771,13 @@ nextjs-portal {
   background: #64748b;
 }
 
+.mix-credit {
+  background: #e11d48;
+}
+
 .dashboard-payment-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1802,6 +1829,11 @@ nextjs-portal {
 .payment-stat.slate .dashboard-icon {
   color: #475569;
   background: #eef2f7;
+}
+
+.payment-stat.rose .dashboard-icon {
+  color: #be123c;
+  background: #ffe4ea;
 }
 
 .cash-check-list,
@@ -2899,7 +2931,8 @@ nextjs-portal {
     gap: 6px;
   }
 
-  .form-grid.two-columns {
+  .form-grid.two-columns,
+  .form-grid.three-columns {
     grid-template-columns: 1fr;
   }
 

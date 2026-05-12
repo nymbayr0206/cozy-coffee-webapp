@@ -290,6 +290,10 @@ export default function ReportsPage() {
             <strong>{formatMoney(report?.bank_total)}</strong>
           </div>
           <div className="metric">
+            <span>Зээлээр</span>
+            <strong>{formatMoney(report?.credit_total)}</strong>
+          </div>
+          <div className="metric">
             <span>Бусад</span>
             <strong>{formatMoney(report?.other_total)}</strong>
           </div>
@@ -343,6 +347,10 @@ export default function ReportsPage() {
             <div>
               <span>Дансаар</span>
               <strong>{formatMoney(report?.bank_total)}</strong>
+            </div>
+            <div>
+              <span>Зээлээр</span>
+              <strong>{formatMoney(report?.credit_total)}</strong>
             </div>
             <div>
               <span>Бусад</span>

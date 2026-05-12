@@ -21,6 +21,8 @@ export async function GET(request: Request) {
       sum.active_count += 1;
       sum.total_quantity += Number(receipt.quantity ?? 0);
       sum.total_cost += Number(receipt.total_cost ?? 0);
+      sum.paid_total += Number(receipt.paid_amount ?? (receipt.payment_method ? 0 : receipt.total_cost) ?? 0);
+      sum.credit_total += Number(receipt.credit_amount ?? 0);
       return sum;
     },
     {
@@ -28,6 +30,8 @@ export async function GET(request: Request) {
       returned_count: 0,
       total_quantity: 0,
       total_cost: 0,
+      paid_total: 0,
+      credit_total: 0,
     },
   );
 

@@ -2,6 +2,7 @@
 
 import {
   CreditCard,
+  HandCoins,
   Landmark,
   Loader2,
   QrCode,
@@ -18,11 +19,13 @@ import {
   createKassOrder,
   createQpayInvoice,
   formatMoney,
+  getPartners,
   getReadableError,
   paymentMethodLabel,
 } from "@/lib/kass/client-api";
 import type {
   CartItem,
+  KassPartner,
   OrderPaymentMethod,
   PaymentPart,
   PaymentMethod,
@@ -46,6 +49,7 @@ const paymentOptions: Array<{
   { method: "qpay", label: "QPay", icon: QrCode },
   { method: "card", label: "Карт", icon: CreditCard },
   { method: "bank", label: "Дансаар", icon: Landmark },
+  { method: "credit", label: "Зээлээр", icon: HandCoins },
   { method: "cash", label: "Бэлэн мөнгө", icon: Wallet },
   { method: "split", label: "Хуваах", icon: Split },
 ];
@@ -56,6 +60,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
   const [splitCashAmount, setSplitCashAmount] = useState("");
   const [splitCardAmount, setSplitCardAmount] = useState("");
   const [splitBankAmount, setSplitBankAmount] = useState("");
+  const [splitCreditAmount, setSplitCreditAmount] = useState("");
   const [splitQpayAmount, setSplitQpayAmount] = useState("");
   const [splitCardConfirmed, setSplitCardConfirmed] = useState(false);
   const [splitBankConfirmed, setSplitBankConfirmed] = useState(false);
@@ -67,6 +72,9 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
   const [qpayChecking, setQpayChecking] = useState(false);
   const [qpayPaid, setQpayPaid] = useState(false);
   const [qpayNotice, setQpayNotice] = useState<string | null>(null);
+  const [partners, setPartners] = useState<KassPartner[]>([]);
+  const [partnersLoading, setPartnersLoading] = useState(false);
+  const [selectedCreditPartnerId, setSelectedCreditPartnerId] = useState("");
   const qpayRequestKeyRef = useRef<string | null>(null);
 
   const orderLines = useMemo(
@@ -89,26 +97,35 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
   const splitCash = Number(splitCashAmount || 0);
   const splitCard = Number(splitCardAmount || 0);
   const splitBank = Number(splitBankAmount || 0);
+  const splitCredit = Number(splitCreditAmount || 0);
   const splitQpay = Number(splitQpayAmount || 0);
-  const splitTotal = splitCash + splitCard + splitBank + splitQpay;
+  const splitTotal = splitCash + splitCard + splitBank + splitCredit + splitQpay;
   const splitRemaining = total - splitTotal;
   const splitMatchesTotal = Math.abs(splitRemaining) <= 0.01;
-  const splitAmountsValid = [splitCash, splitCard, splitBank, splitQpay].every((amount) => Number.isFinite(amount) && amount >= 0);
+  const splitAmountsValid = [splitCash, splitCard, splitBank, splitCredit, splitQpay].every(
+    (amount) => Number.isFinite(amount) && amount >= 0,
+  );
   const splitPayments = useMemo(
     () =>
       [
         { method: "cash", amount: splitCash },
         { method: "card", amount: splitCard },
         { method: "bank", amount: splitBank },
+        { method: "credit", amount: splitCredit },
         { method: "qpay", amount: splitQpay },
       ].filter((payment): payment is PaymentPart => payment.amount > 0 && Number.isFinite(payment.amount)),
-    [splitBank, splitCard, splitCash, splitQpay],
+    [splitBank, splitCard, splitCash, splitCredit, splitQpay],
+  );
+  const selectedCreditPartner = useMemo(
+    () => partners.find((partner) => String(partner.id) === selectedCreditPartnerId) ?? null,
+    [partners, selectedCreditPartnerId],
   );
   const splitReady =
     method !== "split" ||
     (splitAmountsValid &&
       splitMatchesTotal &&
       splitPayments.length > 0 &&
+      (splitCredit <= 0 || Boolean(selectedCreditPartnerId)) &&
       (splitCard <= 0 || splitCardConfirmed) &&
       (splitBank <= 0 || splitBankConfirmed) &&
       (splitQpay <= 0 || (qpayInvoice?.amount === splitQpay && qpayPaid)));
@@ -160,6 +177,20 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     [orderLines, qpayRequestKeyBase, sessionId, total],
   );
 
+  const loadPartners = useCallback(async () => {
+    setPartnersLoading(true);
+
+    try {
+      const response = await getPartners();
+      setPartners(response.partners ?? []);
+    } catch (partnerError) {
+      setError(getReadableError(partnerError));
+      setPartners([]);
+    } finally {
+      setPartnersLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     setMethod("qpay");
@@ -167,6 +198,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     setSplitCashAmount("");
     setSplitCardAmount("");
     setSplitBankAmount("");
+    setSplitCreditAmount("");
     setSplitQpayAmount("");
     setSplitCardConfirmed(false);
     setSplitBankConfirmed(false);
@@ -178,8 +210,10 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     setQpayChecking(false);
     setQpayPaid(false);
     setQpayNotice(null);
+    setSelectedCreditPartnerId("");
     qpayRequestKeyRef.current = null;
-  }, [open]);
+    void loadPartners();
+  }, [loadPartners, open]);
 
   useEffect(() => {
     if (!open || method !== "qpay" || qpayInvoice) return;
@@ -203,6 +237,14 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     }
 
     const qpayPayment = payments.find((payment) => payment.method === "qpay");
+    const creditPayment = payments.find((payment) => payment.method === "credit");
+    if (creditPayment && !selectedCreditPartner) {
+      setError("Зээлээр бүртгэх харилцагч сонгоно уу.");
+      return;
+    }
+    const creditPartnerId = creditPayment ? selectedCreditPartner?.id ?? null : null;
+    const creditPartnerName = creditPayment ? selectedCreditPartner?.name ?? null : null;
+
     if (qpayPayment && (!qpayInvoice || !qpayPaid || qpayInvoice.amount !== qpayPayment.amount)) {
       setError("QPay төлбөр төлөгдсөн эсэхийг эхлээд шалгана уу.");
       return;
@@ -216,6 +258,8 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
         session_id: sessionId,
         payment_method: nextMethod,
         payments,
+        partner_id: creditPartnerId,
+        partner_name: creditPartnerName,
         lines: orderLines,
         qpay_transaction_id: qpayPayment ? qpayInvoice?.transaction_id ?? null : null,
       });
@@ -452,6 +496,44 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
             </div>
           ) : null}
 
+          {method === "credit" ? (
+            <div className="payment-method-panel">
+              <div className="terminal-placeholder">
+                <HandCoins size={58} aria-hidden="true" />
+                <span>Харилцагч дээр зээлээр бүртгэнэ</span>
+              </div>
+              <div>
+                <h3>Зээлээр</h3>
+                <p className="muted-text">Нийт дүн: {formatMoney(total)}</p>
+                <div className="inline-warning">Энэ дүн кассын бэлэн үлдэгдэлд нэмэгдэхгүй.</div>
+                <label className="field credit-customer-field">
+                  <span>Харилцагч</span>
+                  <select
+                    value={selectedCreditPartnerId}
+                    onChange={(event) => setSelectedCreditPartnerId(event.target.value)}
+                    disabled={partnersLoading}
+                  >
+                    <option value="">{partnersLoading ? "Харилцагч уншиж байна" : "Харилцагч сонгох"}</option>
+                    {partners.map((partner) => (
+                      <option key={partner.id} value={partner.id}>
+                        {partner.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  className="primary-button full-width"
+                  type="button"
+                  onClick={() => void submitOrder("credit", [{ method: "credit", amount: total }])}
+                  disabled={!selectedCreditPartnerId || submitting}
+                >
+                  <ReceiptText size={17} aria-hidden="true" />
+                  <span>{submitting ? "Илгээж байна" : "Зээлээр бүртгэх"}</span>
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           {method === "cash" ? (
             <div className="payment-method-panel">
               <div className="cash-stack">
@@ -571,6 +653,28 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
 
                 <label className="split-payment-row">
                   <span className="split-payment-label">
+                    <HandCoins size={18} aria-hidden="true" />
+                    Зээлээр
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    inputMode="numeric"
+                    value={splitCreditAmount}
+                    onChange={(event) => setSplitCreditAmount(event.target.value)}
+                    placeholder="0"
+                  />
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => setSplitCreditAmount(String(Math.max(0, splitRemaining + splitCredit)))}
+                  >
+                    Үлдэгдэл
+                  </button>
+                </label>
+
+                <label className="split-payment-row">
+                  <span className="split-payment-label">
                     <QrCode size={18} aria-hidden="true" />
                     QPay
                   </span>
@@ -598,6 +702,24 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
                 <span>{splitRemaining >= 0 ? "Үлдэгдэл" : "Илүү"}</span>
                 <strong>{formatMoney(Math.abs(splitRemaining))}</strong>
               </div>
+
+              {splitCredit > 0 ? (
+                <label className="field credit-customer-field">
+                  <span>Зээлээр авах харилцагч</span>
+                  <select
+                    value={selectedCreditPartnerId}
+                    onChange={(event) => setSelectedCreditPartnerId(event.target.value)}
+                    disabled={partnersLoading}
+                  >
+                    <option value="">{partnersLoading ? "Харилцагч уншиж байна" : "Харилцагч сонгох"}</option>
+                    {partners.map((partner) => (
+                      <option key={partner.id} value={partner.id}>
+                        {partner.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
 
               {splitCard > 0 ? (
                 <div className="split-confirm-row">

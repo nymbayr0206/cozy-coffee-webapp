@@ -1,7 +1,8 @@
 import { KassServerError } from "./errors";
-import type { PaymentMethod, PaymentPart } from "./client-types";
+import type { PaymentMethod, PaymentPart, StockReceiptPaymentMethod } from "./client-types";
 
-const paymentMethods = new Set<PaymentMethod>(["cash", "card", "qpay", "bank"]);
+const paymentMethods = new Set<PaymentMethod>(["cash", "card", "qpay", "bank", "credit"]);
+const stockReceiptPaymentMethods = new Set<StockReceiptPaymentMethod>(["cash", "credit", "mixed"]);
 
 export async function readJsonBody<T>(request: Request): Promise<T> {
   try {
@@ -35,7 +36,7 @@ export function parseNumber(value: unknown, field: string, options?: { min?: num
 
 export function parsePaymentMethod(value: unknown) {
   if (typeof value !== "string" || !paymentMethods.has(value as PaymentMethod)) {
-    throw new KassServerError("invalid_payment_method", "payment_method must be cash, card, qpay, or bank", 400);
+    throw new KassServerError("invalid_payment_method", "payment_method must be cash, card, qpay, bank, or credit", 400);
   }
 
   return value as PaymentMethod;
@@ -68,6 +69,64 @@ export function parsePaymentParts(value: unknown, total: number) {
   }
 
   return payments;
+}
+
+export function parseStockReceiptPayment(
+  value: {
+    payment_method?: unknown;
+    paid_amount?: unknown;
+    credit_amount?: unknown;
+  },
+  total: number,
+  fallback?: {
+    payment_method?: StockReceiptPaymentMethod;
+    paid_amount?: number;
+    credit_amount?: number;
+  },
+) {
+  const requestedMethod =
+    value.payment_method === undefined || value.payment_method === null || value.payment_method === ""
+      ? fallback?.payment_method ?? "credit"
+      : value.payment_method;
+
+  if (typeof requestedMethod !== "string" || !stockReceiptPaymentMethods.has(requestedMethod as StockReceiptPaymentMethod)) {
+    throw new KassServerError("invalid_payment_method", "stock payment_method must be cash, credit, or mixed", 400);
+  }
+
+  const paymentMethod = requestedMethod as StockReceiptPaymentMethod;
+  const fallbackPaid = fallback?.paid_amount;
+  const fallbackCredit = fallback?.credit_amount;
+  const paidAmount =
+    value.paid_amount === undefined
+      ? paymentMethod === "cash"
+        ? total
+        : paymentMethod === "credit"
+          ? 0
+          : Number(fallbackPaid ?? 0)
+      : parseNumber(value.paid_amount, "paid_amount", { min: 0 });
+  const creditAmount =
+    value.credit_amount === undefined
+      ? paymentMethod === "cash"
+        ? 0
+        : paymentMethod === "credit"
+          ? total
+          : Number(fallbackCredit ?? Math.max(0, total - paidAmount))
+      : parseNumber(value.credit_amount, "credit_amount", { min: 0 });
+  const roundedPaid = Math.round(paidAmount * 100) / 100;
+  const roundedCredit = Math.round(creditAmount * 100) / 100;
+
+  if (Math.abs(roundedPaid + roundedCredit - total) > 0.01) {
+    throw new KassServerError("validation_error", "paid_amount and credit_amount total must match stock receipt total", 400);
+  }
+
+  const normalizedMethod: StockReceiptPaymentMethod =
+    roundedPaid > 0 && roundedCredit > 0 ? "mixed" : roundedPaid > 0 ? "cash" : "credit";
+
+  return {
+    payment_method: normalizedMethod,
+    paid_amount: roundedPaid,
+    credit_amount: roundedCredit,
+  };
 }
 
 export function parseOrderLines(value: unknown) {

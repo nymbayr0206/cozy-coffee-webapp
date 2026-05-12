@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { jsonError, KassServerError } from "@/lib/kass/errors";
 import { receiveOdooProductStock } from "@/lib/kass/odoo";
 import { addStockReceipt } from "@/lib/kass/store";
-import { parseNumber, readJsonBody } from "@/lib/kass/validation";
+import { parseNumber, parseStockReceiptPayment, readJsonBody } from "@/lib/kass/validation";
 
 export const runtime = "nodejs";
 
@@ -16,6 +16,9 @@ interface StockInBody {
   quantity?: unknown;
   unit_cost?: unknown;
   partner_id?: unknown;
+  payment_method?: unknown;
+  paid_amount?: unknown;
+  credit_amount?: unknown;
   note?: unknown;
 }
 
@@ -43,6 +46,8 @@ export async function POST(request: Request, context: ProductParams) {
       body.partner_id === undefined || body.partner_id === null || body.partner_id === ""
         ? null
         : Math.trunc(parseNumber(body.partner_id, "partner_id", { min: 1 }));
+    const totalCost = Math.round(quantity * unitCost * 100) / 100;
+    const payment = parseStockReceiptPayment(body, totalCost);
     const note = typeof body.note === "string" ? body.note : null;
     const result = await receiveOdooProductStock(productId, {
       quantity,
@@ -55,9 +60,10 @@ export async function POST(request: Request, context: ProductParams) {
       product_name: result.product.name,
       quantity,
       unit_cost: unitCost,
-      total_cost: quantity * unitCost,
+      total_cost: totalCost,
       partner_id: result.partner?.id ?? partnerId,
       partner_name: result.partner?.name ?? null,
+      ...payment,
       note: result.note ?? note,
       odoo_receipt_id: result.receipt?.id ?? null,
       odoo_receipt_name: result.receipt?.name ?? null,

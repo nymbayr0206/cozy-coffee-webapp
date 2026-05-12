@@ -22,6 +22,9 @@ import type {
   ProductRecipeResponse,
   ProductResponse,
   CategoryDeleteResponse,
+  FinanceSettlementRequest,
+  FinanceSettlementResponse,
+  FinanceSettlementsResponse,
   ProductScope,
   ProductStockInRequest,
   ProductStockInResponse,
@@ -284,6 +287,21 @@ export function returnStockReceipt(receiptId: string) {
   });
 }
 
+export function getFinanceSettlements(options?: { type?: "payable" | "receivable" }) {
+  const query = new URLSearchParams();
+  if (options?.type) query.set("type", options.type);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+
+  return request<FinanceSettlementsResponse>(`/finance/settlements${suffix}`);
+}
+
+export function createFinanceSettlement(body: FinanceSettlementRequest) {
+  return request<FinanceSettlementResponse>("/finance/settlements", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 export function loginOdooCashier(body: OdooLoginRequest) {
   return request<OdooLoginResponse>("/auth/login", {
     method: "POST",
@@ -402,6 +420,7 @@ export function paymentMethodLabel(method: string | undefined) {
   if (method === "card") return "Карт";
   if (method === "qpay") return "QPay";
   if (method === "bank") return "Дансаар";
+  if (method === "credit") return "Зээлээр";
   if (method === "mixed") return "Хуваасан";
   if (method === "other") return "Бусад";
   return "Тодорхойгүй";

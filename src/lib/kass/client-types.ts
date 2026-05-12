@@ -1,4 +1,4 @@
-export type PaymentMethod = "cash" | "card" | "qpay" | "bank";
+export type PaymentMethod = "cash" | "card" | "qpay" | "bank" | "credit";
 export type OrderPaymentMethod = PaymentMethod | "mixed";
 
 export interface PaymentPart {
@@ -186,8 +186,13 @@ export interface ProductStockInRequest {
   quantity: number;
   unit_cost?: number | null;
   partner_id?: number | null;
+  payment_method?: StockReceiptPaymentMethod;
+  paid_amount?: number;
+  credit_amount?: number;
   note?: string | null;
 }
+
+export type StockReceiptPaymentMethod = "cash" | "credit" | "mixed";
 
 export interface KassStockReceipt {
   receipt_id: string;
@@ -198,6 +203,9 @@ export interface KassStockReceipt {
   total_cost: number;
   partner_id?: number | null;
   partner_name?: string | null;
+  payment_method?: StockReceiptPaymentMethod;
+  paid_amount?: number;
+  credit_amount?: number;
   note?: string | null;
   odoo_receipt_id?: number | null;
   odoo_receipt_name?: string | null;
@@ -216,6 +224,8 @@ export interface StockReceiptsResponse {
   returned_count: number;
   total_quantity: number;
   total_cost: number;
+  paid_total: number;
+  credit_total: number;
 }
 
 export interface StockReceiptUpdateRequest {
@@ -223,6 +233,9 @@ export interface StockReceiptUpdateRequest {
   unit_cost?: number;
   partner_id?: number | null;
   partner_name?: string | null;
+  payment_method?: StockReceiptPaymentMethod;
+  paid_amount?: number;
+  credit_amount?: number;
   note?: string | null;
 }
 
@@ -231,6 +244,34 @@ export interface StockReceiptMutationResponse {
   receipt: KassStockReceipt;
   product: KassProduct;
   quantity_delta: number;
+}
+
+export type FinanceSettlementType = "payable" | "receivable";
+
+export interface FinanceSettlement {
+  settlement_id: string;
+  type: FinanceSettlementType;
+  partner_id?: number | null;
+  partner_name: string;
+  amount: number;
+  note?: string | null;
+  created_at: string;
+}
+
+export interface FinanceSettlementsResponse {
+  settlements: FinanceSettlement[];
+}
+
+export interface FinanceSettlementRequest {
+  type: FinanceSettlementType;
+  partner_id?: number | null;
+  partner_name: string;
+  amount: number;
+  note?: string | null;
+}
+
+export interface FinanceSettlementResponse {
+  settlement: FinanceSettlement;
 }
 
 export interface ProductStockInResponse {
@@ -310,6 +351,8 @@ export interface CreateOrderRequest {
   session_id: string;
   payment_method?: OrderPaymentMethod;
   payments?: PaymentPart[];
+  partner_id?: number | null;
+  partner_name?: string | null;
   lines: OrderLineRequest[];
   qpay_transaction_id?: number | null;
 }
@@ -319,6 +362,8 @@ export interface CreateOrderResponse {
   receipt_number?: string;
   payment_method?: OrderPaymentMethod;
   payment_parts?: PaymentPart[];
+  partner_id?: number | null;
+  partner_name?: string | null;
   total?: number;
   order?: {
     id?: string | number;
@@ -327,6 +372,8 @@ export interface CreateOrderResponse {
     total?: number;
     payment_method?: OrderPaymentMethod;
     payment_parts?: PaymentPart[];
+    partner_id?: number | null;
+    partner_name?: string | null;
   };
   [key: string]: unknown;
 }
@@ -368,6 +415,8 @@ export interface KassOrderSummary {
   receipt_number?: string;
   payment_method?: OrderPaymentMethod | "other";
   payment_parts?: PaymentPart[];
+  partner_id?: number | null;
+  partner_name?: string | null;
   total?: number;
   created_at?: string;
   date?: string;
@@ -394,6 +443,7 @@ export interface SalesReportResponse {
   card_total: number;
   qpay_total: number;
   bank_total: number;
+  credit_total: number;
   other_total: number;
   orders_count: number;
   average_order: number;
@@ -414,6 +464,7 @@ export interface KassReport {
   card_total?: number;
   qpay_total?: number;
   bank_total?: number;
+  credit_total?: number;
   orders_count?: number;
   expected_cash?: number;
   orders?: KassOrderSummary[];
@@ -436,6 +487,7 @@ export interface CloseSessionResponse {
   card_total?: number;
   qpay_total?: number;
   bank_total?: number;
+  credit_total?: number;
   orders_count?: number;
   closed_at?: string;
   report?: Partial<KassReport>;
@@ -451,6 +503,8 @@ export interface KassSessionEvent {
   receipt_number?: string;
   payment_method?: OrderPaymentMethod | "other";
   payment_parts?: PaymentPart[];
+  partner_id?: number | null;
+  partner_name?: string | null;
   amount?: number;
   opening_cash?: number;
   closing_cash?: number;

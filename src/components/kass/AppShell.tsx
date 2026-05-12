@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   Boxes,
+  CircleDollarSign,
   DoorOpen,
   LayoutDashboard,
   LogIn,
@@ -69,6 +70,7 @@ const navItems = [
   { href: "/products", label: "Бүтээгдэхүүн", icon: Boxes },
   { href: "/warehouse", label: "Агуулах", icon: Warehouse },
   { href: "/partners", label: "Харилцагч", icon: Users },
+  { href: "/finance", label: "Өглөг/Авлага", icon: CircleDollarSign },
   { href: "/sales", label: "Борлуулалт", icon: ReceiptText },
   { href: "/reports", label: "Тайлан", icon: BarChart3 },
   { href: "/settings", label: "Тохиргоо", icon: Settings },
@@ -595,6 +597,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               <div className="metric">
                 <span>Дансаар</span>
                 <strong>{formatMoney(closeResult.bank_total ?? closeResult.report?.bank_total)}</strong>
+              </div>
+              <div className="metric">
+                <span>Зээлээр</span>
+                <strong>{formatMoney(closeResult.credit_total ?? closeResult.report?.credit_total)}</strong>
               </div>
               <div className="metric">
                 <span>Хүлээгдэж буй бэлэн мөнгө</span>

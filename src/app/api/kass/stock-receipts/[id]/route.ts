@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { jsonError, KassServerError } from "@/lib/kass/errors";
 import { adjustOdooProductStock } from "@/lib/kass/odoo";
 import { getStockReceipt, returnStockReceipt, updateStockReceipt } from "@/lib/kass/store";
-import { parseNumber, readJsonBody } from "@/lib/kass/validation";
+import { parseNumber, parseStockReceiptPayment, readJsonBody } from "@/lib/kass/validation";
 
 export const runtime = "nodejs";
 
@@ -17,6 +17,9 @@ interface StockReceiptPatchBody {
   unit_cost?: unknown;
   partner_id?: unknown;
   partner_name?: unknown;
+  payment_method?: unknown;
+  paid_amount?: unknown;
+  credit_amount?: unknown;
   note?: unknown;
 }
 
@@ -50,15 +53,22 @@ export async function PATCH(request: Request, context: StockReceiptParams) {
     const partnerName = typeof body.partner_name === "string" && body.partner_name.trim() ? body.partner_name.trim() : null;
     const note = typeof body.note === "string" && body.note.trim() ? body.note.trim() : null;
     const quantityDelta = quantity - receipt.quantity;
+    const totalCost = Math.round(quantity * unitCost * 100) / 100;
+    const payment = parseStockReceiptPayment(body, totalCost, {
+      payment_method: receipt.payment_method,
+      paid_amount: receipt.paid_amount,
+      credit_amount: receipt.credit_amount,
+    });
     const result = await adjustOdooProductStock(receipt.product_id, quantityDelta, {
       unit_cost: unitCost,
     });
     const updated = updateStockReceipt(receiptId, {
       quantity,
       unit_cost: unitCost,
-      total_cost: quantity * unitCost,
+      total_cost: totalCost,
       partner_id: partnerId,
       partner_name: partnerName,
+      ...payment,
       note,
       location_id: result.location?.id ?? receipt.location_id ?? null,
       location_name: result.location?.name ?? receipt.location_name ?? null,
