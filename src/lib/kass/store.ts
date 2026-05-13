@@ -37,13 +37,15 @@ export interface KassOrderRecord {
     quantity: number;
     price: number;
   }>;
+  status?: "active" | "returned";
   created_at: string;
+  returned_at?: string;
 }
 
 export interface KassSessionEvent {
   event_id: string;
   session_id: string;
-  type: "session_opened" | "order_created" | "session_closed";
+  type: "session_opened" | "order_created" | "order_returned" | "session_closed";
   cashier_name?: string;
   order_id?: string | number;
   receipt_number?: string;
@@ -320,11 +322,12 @@ function getActiveSessionFromState(state: KassStoreState) {
 }
 
 function calculateReport(session: KassSessionRecord, orders: KassOrderRecord[]) {
-  const cash_total = orders.reduce((sum, order) => sum + paymentAmount(order, "cash"), 0);
-  const card_total = orders.reduce((sum, order) => sum + paymentAmount(order, "card"), 0);
-  const qpay_total = orders.reduce((sum, order) => sum + paymentAmount(order, "qpay"), 0);
-  const bank_total = orders.reduce((sum, order) => sum + paymentAmount(order, "bank"), 0);
-  const credit_total = orders.reduce((sum, order) => sum + paymentAmount(order, "credit"), 0);
+  const activeOrders = orders.filter((order) => order.status !== "returned");
+  const cash_total = activeOrders.reduce((sum, order) => sum + paymentAmount(order, "cash"), 0);
+  const card_total = activeOrders.reduce((sum, order) => sum + paymentAmount(order, "card"), 0);
+  const qpay_total = activeOrders.reduce((sum, order) => sum + paymentAmount(order, "qpay"), 0);
+  const bank_total = activeOrders.reduce((sum, order) => sum + paymentAmount(order, "bank"), 0);
+  const credit_total = activeOrders.reduce((sum, order) => sum + paymentAmount(order, "credit"), 0);
   const total_sales = cash_total + card_total + qpay_total + bank_total + credit_total;
   const expected_cash = session.opening_cash + cash_total;
 
@@ -337,7 +340,8 @@ function calculateReport(session: KassSessionRecord, orders: KassOrderRecord[]) 
     qpay_total,
     bank_total,
     credit_total,
-    orders_count: orders.length,
+    orders_count: activeOrders.length,
+    returned_orders_count: orders.length - activeOrders.length,
     expected_cash,
     cash_difference: session.closing_cash === undefined ? undefined : session.closing_cash - expected_cash,
     orders,
@@ -415,7 +419,10 @@ export function addOrder(order: KassOrderRecord) {
   return withLockedState((state) => {
     assertSessionOpenInState(state, order.session_id);
     const orders = state.orders.get(order.session_id) ?? [];
-    orders.push(order);
+    orders.push({
+      status: "active",
+      ...order,
+    });
     state.orders.set(order.session_id, orders);
     pushEvent(state, {
       session_id: order.session_id,
@@ -438,6 +445,55 @@ export function getOrders(sessionId: string) {
   const state = readState();
   getSessionFromState(state, sessionId);
   return state.orders.get(sessionId) ?? [];
+}
+
+export function getOrderByReference(reference: string) {
+  const state = readState();
+  const needle = String(reference).trim();
+
+  for (const orders of state.orders.values()) {
+    const order = orders.find((item) => String(item.receipt_number) === needle || String(item.order_id) === needle);
+
+    if (order) return order;
+  }
+
+  throw new KassServerError("order_not_found", "Борлуулалтын бүртгэл олдсонгүй.", 404);
+}
+
+export function returnOrder(reference: string) {
+  return withLockedState((state) => {
+    const needle = String(reference).trim();
+
+    for (const [sessionId, orders] of state.orders.entries()) {
+      const order = orders.find((item) => String(item.receipt_number) === needle || String(item.order_id) === needle);
+
+      if (!order) continue;
+
+      if (order.status === "returned") {
+        throw new KassServerError("order_returned", "Энэ борлуулалт аль хэдийн буцаагдсан байна.", 409);
+      }
+
+      order.status = "returned";
+      order.returned_at = new Date().toISOString();
+      state.orders.set(sessionId, orders);
+      pushEvent(state, {
+        session_id: order.session_id,
+        type: "order_returned",
+        order_id: order.order_id,
+        receipt_number: order.receipt_number,
+        payment_method: order.payment_method,
+        payment_parts: order.payment_parts,
+        partner_id: order.partner_id,
+        partner_name: order.partner_name,
+        amount: -Math.abs(order.total),
+        created_at: order.returned_at,
+      });
+
+      return order;
+    }
+
+    throw new KassServerError("order_not_found", "Борлуулалтын бүртгэл олдсонгүй.", 404);
+  });
 }
 
 export function getReport(sessionId: string) {

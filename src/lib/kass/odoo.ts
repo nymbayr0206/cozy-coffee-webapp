@@ -2817,6 +2817,33 @@ export async function linkOdooQpayTransactionToSaleOrder(transactionId: number, 
   }
 }
 
+export async function cancelOdooSaleOrder(saleOrderId: number) {
+  const config = getOdooConfig();
+  const uid = await authenticate(config);
+  const modules = await getModuleStates(config, uid);
+  assertModuleInstalled(modules, "sale");
+
+  try {
+    const records = await executeKw<Array<{ id: number; state?: string }>>(config, uid, "sale.order", "read", [
+      [saleOrderId],
+      ["id", "state"],
+    ]);
+    const order = records[0];
+
+    if (!order) {
+      throw new KassServerError("order_not_found", "Odoo sale order олдсонгүй.", 404);
+    }
+
+    if (order.state === "cancel") return true;
+
+    await executeKw<boolean | unknown[]>(config, uid, "sale.order", "action_cancel", [[saleOrderId]]);
+    return true;
+  } catch (error) {
+    if (error instanceof KassServerError) throw error;
+    throw new KassServerError("order_return_failed", "Odoo sale order цуцлахад алдаа гарлаа.", 502);
+  }
+}
+
 export async function createOdooSaleOrder(
   lines: Array<{ product_id: number; quantity: number; price: number }>,
   paymentMethod: string,
@@ -2915,6 +2942,71 @@ export async function consumeOdooRecipeStock(lines: Array<{ product_id: number; 
     if (error instanceof KassServerError) throw error;
     throw new KassServerError("validation_error", "Агуулахын үлдэгдлээс орц хасахад алдаа гарлаа.", 502);
   }
+}
+
+export async function restoreOdooRecipeStock(lines: Array<{ product_id: number; quantity: number; price: number }>) {
+  const config = getOdooConfig();
+  const uid = await authenticate(config);
+  const modules = await getModuleStates(config, uid);
+  assertModuleInstalled(modules, "product");
+  assertModuleInstalled(modules, "stock");
+
+  try {
+    const consumption = await calculateRecipeStockDeltas(config, uid, modules, lines);
+
+    for (const [productId, quantity] of consumption.entries()) {
+      await receiveStockByInventoryAdjustment(config, uid, productId, quantity);
+    }
+  } catch (error) {
+    if (error instanceof KassServerError) throw error;
+    throw new KassServerError("order_return_failed", "Агуулахын зарцуулалтыг буцаахад алдаа гарлаа.", 502);
+  }
+}
+
+async function calculateRecipeStockDeltas(
+  config: OdooConfig,
+  uid: number,
+  modules: Record<string, string>,
+  lines: Array<{ product_id: number; quantity: number; price: number }>,
+) {
+  const consumption = new Map<number, number>();
+
+  for (const line of lines) {
+    const soldQuantity = Number(line.quantity);
+    if (!Number.isFinite(soldQuantity) || soldQuantity <= 0) continue;
+
+    const product = await readProductForRecipe(config, uid, line.product_id);
+    const templateId = relationId(product.product_tmpl_id);
+    if (!templateId) {
+      throw new KassServerError("product_not_found", "Барааны template олдсонгүй.", 404);
+    }
+
+    let bom: OdooBomRecord | null = null;
+    let bomLines: OdooBomLineRecord[] = [];
+
+    if (modules.mrp === "installed") {
+      bom = await readPrimaryBom(config, uid, line.product_id, templateId);
+      bomLines = bom ? await readBomLines(config, uid, bom.id) : [];
+    }
+
+    if (bomLines.length > 0) {
+      for (const bomLine of bomLines) {
+        const componentId = relationId(bomLine.product_id);
+        const componentQuantity = Number(bomLine.product_qty ?? 0);
+        if (!componentId || !Number.isFinite(componentQuantity) || componentQuantity <= 0) continue;
+
+        consumption.set(componentId, Number(consumption.get(componentId) ?? 0) + componentQuantity * soldQuantity);
+      }
+      continue;
+    }
+
+    const isStorable = product.is_storable === true || product.type === "product";
+    if (isStorable) {
+      consumption.set(line.product_id, Number(consumption.get(line.product_id) ?? 0) + soldQuantity);
+    }
+  }
+
+  return consumption;
 }
 
 async function consumeOdooProductStock(

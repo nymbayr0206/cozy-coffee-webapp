@@ -2335,7 +2335,15 @@ nextjs-portal {
 }
 
 .session-history-table {
-  min-width: 940px;
+  min-width: 1320px;
+}
+
+.cash-report-heading {
+  margin-top: 16px;
+}
+
+.cash-report-grid {
+  margin-top: 0;
 }
 
 .event-list {
@@ -2535,6 +2543,11 @@ nextjs-portal {
 
 .data-table tr:last-child td {
   border-bottom: 0;
+}
+
+.data-table tr.row-returned td {
+  color: var(--muted);
+  background: #f8fafc;
 }
 
 .product-thumb {

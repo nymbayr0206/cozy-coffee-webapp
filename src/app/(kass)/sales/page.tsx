@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock3, RefreshCcw } from "lucide-react";
+import { Clock3, RefreshCcw, Undo2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { useKassSession } from "@/components/kass/AppShell";
@@ -10,8 +10,9 @@ import {
   getReadableError,
   getSessionReport,
   paymentMethodLabel,
+  returnKassOrder,
 } from "@/lib/kass/client-api";
-import type { KassSessionEvent, KassReport } from "@/lib/kass/client-types";
+import type { KassOrderSummary, KassSessionEvent, KassReport } from "@/lib/kass/client-types";
 
 function formatDateTime(value?: string | null) {
   if (!value) return "Байхгүй";
@@ -27,6 +28,13 @@ function formatDateTime(value?: string | null) {
   }).format(date);
 }
 
+function formatOptionalMoney(value: unknown, fallback = "Хаагаагүй") {
+  if (value === undefined || value === null || value === "") return fallback;
+
+  const amount = Number(value);
+  return Number.isFinite(amount) ? formatMoney(amount) : fallback;
+}
+
 function sessionStatusLabel(session: KassReport) {
   return session.closed_at ? "Хаагдсан" : "Нээлттэй";
 }
@@ -35,7 +43,21 @@ function eventLabel(event: KassSessionEvent) {
   if (event.type === "session_opened") return "Ээлж нээгдсэн";
   if (event.type === "session_closed") return "Ээлж хаагдсан";
   if (event.type === "order_created") return "Захиалга";
+  if (event.type === "order_returned") return "Буцаалт";
   return event.type;
+}
+
+function eventAmount(event: KassSessionEvent) {
+  if (event.type === "session_opened") return event.opening_cash ?? 0;
+  if (event.type === "session_closed") return event.closing_cash ?? 0;
+  return event.amount ?? 0;
+}
+
+function eventAmountLabel(event: KassSessionEvent) {
+  if (event.type === "session_opened") return "Нээлтийн касс";
+  if (event.type === "session_closed") return "Хаалтын касс";
+  if (event.type === "order_returned") return "Буцаалт";
+  return "Дүн";
 }
 
 function SalesPageContent() {
@@ -50,6 +72,7 @@ function SalesPageContent() {
   const [events, setEvents] = useState<KassSessionEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [returningOrderKey, setReturningOrderKey] = useState<string | null>(null);
   const displayReport = viewingSpecificSession ? selectedReport : report;
   const displayLoading = viewingSpecificSession ? selectedReportLoading : reportLoading;
   const displayError = viewingSpecificSession ? selectedReportError : reportError;
@@ -92,6 +115,33 @@ function SalesPageContent() {
       setSelectedReport(null);
     } finally {
       setSelectedReportLoading(false);
+    }
+  }
+
+  async function handleReturnOrder(order: KassOrderSummary) {
+    const reference = order.receipt_number ?? order.order_id;
+    if (!reference) return;
+
+    const ok = window.confirm(`${order.receipt_number ?? order.order_id} борлуулалтыг буцаах уу?`);
+    if (!ok) return;
+
+    const key = String(reference);
+    setReturningOrderKey(key);
+    setSelectedReportError(null);
+    setHistoryError(null);
+
+    try {
+      await returnKassOrder(reference);
+      await refreshAll();
+    } catch (error) {
+      const message = getReadableError(error);
+      if (viewingSpecificSession) {
+        setSelectedReportError(message);
+      } else {
+        setHistoryError(message);
+      }
+    } finally {
+      setReturningOrderKey(null);
     }
   }
 
@@ -171,6 +221,44 @@ function SalesPageContent() {
             <span>Захиалга</span>
             <strong>{Number(displayReport?.orders_count ?? 0)}</strong>
           </div>
+          <div className="metric">
+            <span>Буцаалт</span>
+            <strong>{Number(displayReport?.returned_orders_count ?? 0)}</strong>
+          </div>
+        </div>
+
+        <div className="section-heading-row cash-report-heading">
+          <div>
+            <p className="eyebrow">Кассын тайлан</p>
+            <h2>Нээлт, хаалтын мөнгө</h2>
+          </div>
+        </div>
+
+        <div className="summary-grid sales-summary cash-report-grid">
+          <div className="metric">
+            <span>Нээлтийн касс</span>
+            <strong>{formatMoney(displayReport?.opening_cash)}</strong>
+          </div>
+          <div className="metric">
+            <span>Бэлэн борлуулалт</span>
+            <strong>{formatMoney(displayReport?.cash_total)}</strong>
+          </div>
+          <div className="metric">
+            <span>Хүлээгдэж буй касс</span>
+            <strong>{formatMoney(displayReport?.expected_cash)}</strong>
+          </div>
+          <div className="metric">
+            <span>Хаалтын касс</span>
+            <strong>{formatOptionalMoney(displayReport?.closing_cash)}</strong>
+          </div>
+          <div className="metric">
+            <span>Кассын зөрүү</span>
+            <strong>{formatOptionalMoney(displayReport?.cash_difference)}</strong>
+          </div>
+          <div className="metric">
+            <span>Төлөв</span>
+            <strong>{displayReport?.closed_at ? "Хаагдсан" : "Нээлттэй"}</strong>
+          </div>
         </div>
 
         <div className="table-wrap">
@@ -182,22 +270,47 @@ function SalesPageContent() {
                 <th>Төлбөр</th>
                 <th>Нийт дүн</th>
                 <th>Огноо</th>
+                <th>Үйлдэл</th>
               </tr>
             </thead>
             <tbody>
               {orders.length > 0 ? (
-                orders.map((order, index) => (
-                  <tr key={`${order.order_id ?? order.receipt_number ?? index}`}>
-                    <td>{order.receipt_number ?? "Байхгүй"}</td>
-                    <td>{order.order_id ?? "Байхгүй"}</td>
-                    <td>{paymentMethodLabel(order.payment_method)}</td>
-                    <td>{formatMoney(order.total)}</td>
-                    <td>{formatDateTime(order.created_at ?? order.date)}</td>
-                  </tr>
-                ))
+                orders.map((order, index) => {
+                  const reference = order.receipt_number ?? order.order_id;
+                  const isReturned = order.status === "returned";
+                  const returning = returningOrderKey === String(reference);
+
+                  return (
+                    <tr className={isReturned ? "row-returned" : undefined} key={`${order.order_id ?? order.receipt_number ?? index}`}>
+                      <td>
+                        {order.receipt_number ?? "Байхгүй"}
+                        {isReturned ? <span className="table-subtext">Буцаагдсан: {formatDateTime(order.returned_at)}</span> : null}
+                      </td>
+                      <td>{order.order_id ?? "Байхгүй"}</td>
+                      <td>
+                        <span className={isReturned ? "status-pill muted" : "status-pill success"}>
+                          {isReturned ? "Буцаагдсан" : paymentMethodLabel(order.payment_method)}
+                        </span>
+                      </td>
+                      <td>{formatMoney(order.total)}</td>
+                      <td>{formatDateTime(order.created_at ?? order.date)}</td>
+                      <td>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() => handleReturnOrder(order)}
+                          disabled={isReturned || returning || !reference}
+                        >
+                          <Undo2 size={16} aria-hidden="true" />
+                          <span>{returning ? "Буцааж байна" : "Буцаах"}</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
-                  <td colSpan={5}>
+                  <td colSpan={6}>
                     {displayLoading
                       ? "Ээлжийн тайлан уншиж байна."
                       : viewingSpecificSession
@@ -232,6 +345,9 @@ function SalesPageContent() {
                   <th>Нээгдсэн</th>
                   <th>Хаагдсан</th>
                   <th>Нээлтийн касс</th>
+                  <th>Хүлээгдэж буй касс</th>
+                  <th>Хаалтын касс</th>
+                  <th>Зөрүү</th>
                   <th>Нийт борлуулалт</th>
                 </tr>
               </thead>
@@ -248,12 +364,15 @@ function SalesPageContent() {
                       <td>{formatDateTime(session.opened_at)}</td>
                       <td>{formatDateTime(session.closed_at)}</td>
                       <td>{formatMoney(session.opening_cash)}</td>
+                      <td>{formatMoney(session.expected_cash)}</td>
+                      <td>{formatOptionalMoney(session.closing_cash)}</td>
+                      <td>{formatOptionalMoney(session.cash_difference)}</td>
                       <td>{formatMoney(session.total_sales)}</td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6}>{historyLoading ? "Ээлжийн бүртгэл уншиж байна." : "Ээлжийн бүртгэл алга."}</td>
+                    <td colSpan={9}>{historyLoading ? "Ээлжийн бүртгэл уншиж байна." : "Ээлжийн бүртгэл алга."}</td>
                   </tr>
                 )}
               </tbody>
@@ -279,7 +398,8 @@ function SalesPageContent() {
                     <span>{event.cashier_name ?? event.receipt_number ?? event.session_id.slice(-8)}</span>
                   </div>
                   <div>
-                    <strong>{formatMoney(event.amount ?? event.opening_cash ?? event.closing_cash ?? 0)}</strong>
+                    <strong>{formatMoney(eventAmount(event))}</strong>
+                    <span>{eventAmountLabel(event)}</span>
                     <span>{formatDateTime(event.created_at)}</span>
                   </div>
                 </div>

@@ -332,6 +332,10 @@ export default function ReportsPage() {
             <strong>{formatMoney(report?.average_order)}</strong>
           </div>
           <div className="metric">
+            <span>Дундаж цагийн борлуулалт</span>
+            <strong>{formatMoney(report?.average_hourly_sales)}</strong>
+          </div>
+          <div className="metric">
             <span>Бэлэн</span>
             <strong>{formatMoney(report?.cash_total)}</strong>
           </div>

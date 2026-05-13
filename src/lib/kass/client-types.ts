@@ -365,6 +365,8 @@ export interface CreateOrderResponse {
   partner_id?: number | null;
   partner_name?: string | null;
   total?: number;
+  status?: "active" | "returned";
+  returned_at?: string;
   order?: {
     id?: string | number;
     order_id?: string | number;
@@ -374,8 +376,15 @@ export interface CreateOrderResponse {
     payment_parts?: PaymentPart[];
     partner_id?: number | null;
     partner_name?: string | null;
+    status?: "active" | "returned";
+    returned_at?: string;
   };
   [key: string]: unknown;
+}
+
+export interface ReturnOrderResponse {
+  ok: boolean;
+  order: KassOrderSummary;
 }
 
 export interface QpayInvoiceRequest {
@@ -418,7 +427,9 @@ export interface KassOrderSummary {
   partner_id?: number | null;
   partner_name?: string | null;
   total?: number;
+  status?: "active" | "returned";
   created_at?: string;
+  returned_at?: string;
   date?: string;
   [key: string]: unknown;
 }
@@ -448,6 +459,7 @@ export interface SalesReportResponse {
   other_total: number;
   orders_count: number;
   average_order: number;
+  average_hourly_sales: number;
   orders: KassOrderSummary[];
   products: SalesProductSummary[];
 }
@@ -467,6 +479,7 @@ export interface KassReport {
   bank_total?: number;
   credit_total?: number;
   orders_count?: number;
+  returned_orders_count?: number;
   expected_cash?: number;
   orders?: KassOrderSummary[];
   report?: Partial<KassReport>;
@@ -498,7 +511,7 @@ export interface CloseSessionResponse {
 export interface KassSessionEvent {
   event_id: string;
   session_id: string;
-  type: "session_opened" | "order_created" | "session_closed" | string;
+  type: "session_opened" | "order_created" | "order_returned" | "session_closed" | string;
   cashier_name?: string;
   order_id?: string | number;
   receipt_number?: string;

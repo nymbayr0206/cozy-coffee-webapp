@@ -21,11 +21,14 @@ export type KassErrorCode =
   | "session_already_open"
   | "session_not_found"
   | "session_closed"
+  | "order_not_found"
+  | "order_returned"
   | "partner_create_failed"
   | "partner_update_failed"
   | "partner_delete_failed"
   | "invalid_payment_method"
   | "order_create_failed"
+  | "order_return_failed"
   | "validation_error";
 
 export class KassServerError extends Error {

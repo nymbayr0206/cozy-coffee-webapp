@@ -33,6 +33,7 @@ import type {
   QpayInvoiceRequest,
   QpayInvoiceResponse,
   ProductsResponse,
+  ReturnOrderResponse,
   SalesReportPeriod,
   SalesReportResponse,
   SessionsResponse,
@@ -67,6 +68,9 @@ const errorMessages: Record<string, string> = {
   stock_receive_failed: "Барааны орлого авахад алдаа гарлаа.",
   stock_receipt_not_found: "Орлогын бүртгэл олдсонгүй.",
   stock_receipt_returned: "Энэ орлого аль хэдийн буцаагдсан байна.",
+  order_not_found: "Борлуулалтын бүртгэл олдсонгүй.",
+  order_returned: "Энэ борлуулалт аль хэдийн буцаагдсан байна.",
+  order_return_failed: "Борлуулалтын буцаалт хийхэд алдаа гарлаа.",
   recipe_save_failed: "Барааны жор хадгалахад алдаа гарлаа.",
   session_not_found: "Ээлж олдсонгүй. Шинэ ээлж нээгээд дахин оролдоно уу.",
   session_already_open: "Касс дээр ээлж аль хэдийн нээгдсэн байна.",
@@ -320,6 +324,12 @@ export function createKassOrder(body: CreateOrderRequest) {
   return request<CreateOrderResponse>("/order", {
     method: "POST",
     body: JSON.stringify(body),
+  });
+}
+
+export function returnKassOrder(reference: string | number) {
+  return request<ReturnOrderResponse>(`/order/${encodeURIComponent(String(reference))}`, {
+    method: "DELETE",
   });
 }
 

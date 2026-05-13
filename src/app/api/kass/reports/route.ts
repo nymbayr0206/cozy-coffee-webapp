@@ -22,10 +22,12 @@ export async function GET(request: Request) {
     }
 
     const report = await getOdooSalesReport(start, end);
+    const durationHours = Math.max(1, (new Date(end).getTime() - new Date(start).getTime()) / (60 * 60 * 1000));
 
     return NextResponse.json({
       period,
       ...report,
+      average_hourly_sales: report.total_sales / durationHours,
     });
   } catch (error) {
     return jsonError(error);
