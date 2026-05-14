@@ -115,7 +115,7 @@ function StampRow({ count, compact = false }: { count: number; compact?: boolean
 
 export function CozyUserApp() {
   const [hydrated, setHydrated] = useState(false);
-  const [authMode, setAuthMode] = useState<AuthMode>("register");
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [activeTab, setActiveTab] = useState<TabKey>("home");
   const [profile, setProfile] = useState<CozyUserProfile | null>(null);
   const [name, setName] = useState("");
