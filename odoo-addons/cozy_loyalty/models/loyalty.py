@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import hmac
+import json
 import secrets
 from datetime import datetime, time, timedelta
 
@@ -21,6 +22,9 @@ class CozyLoyaltyMember(models.Model):
     stamp_count = fields.Integer(default=0)
     marketing_opt_in = fields.Boolean(default=True)
     last_purchase_at = fields.Datetime()
+    push_enabled = fields.Boolean(default=False)
+    push_subscription_json = fields.Text()
+    push_last_seen_at = fields.Datetime()
     active = fields.Boolean(default=True)
     coupon_ids = fields.One2many("cozy.loyalty.coupon", "member_id")
     notification_message_ids = fields.One2many("cozy.notification.message", "member_id")
@@ -76,6 +80,7 @@ class CozyLoyaltyMember(models.Model):
             "stamp_count": self.stamp_count,
             "marketing_opt_in": self.marketing_opt_in,
             "last_purchase_at": fields.Datetime.to_string(self.last_purchase_at) if self.last_purchase_at else None,
+            "push_enabled": self.push_enabled,
         }
 
     def _wallet_payload(self):
@@ -290,6 +295,35 @@ class CozyLoyaltyMember(models.Model):
         if "marketing_opt_in" in (values or {}):
             member.marketing_opt_in = bool(values.get("marketing_opt_in"))
         return member._wallet_payload()
+
+    @api.model
+    def api_save_push_subscription(self, member_id, subscription):
+        member = self.browse(int(member_id)).exists()
+        if not member or not member.active:
+            raise ValidationError("Loyalty member not found.")
+        subscription = subscription or {}
+        endpoint = subscription.get("endpoint")
+        keys = subscription.get("keys") or {}
+        if not endpoint or not keys.get("p256dh") or not keys.get("auth"):
+            raise ValidationError("Invalid push subscription.")
+        member.write({
+            "push_enabled": True,
+            "push_subscription_json": json.dumps(subscription),
+            "push_last_seen_at": fields.Datetime.now(),
+        })
+        return member._member_payload()
+
+    @api.model
+    def api_disable_push_subscription(self, member_id):
+        member = self.browse(int(member_id)).exists()
+        if not member or not member.active:
+            raise ValidationError("Loyalty member not found.")
+        member.write({
+            "push_enabled": False,
+            "push_subscription_json": False,
+            "push_last_seen_at": fields.Datetime.now(),
+        })
+        return member._member_payload()
 
 
 class CozyLoyaltyStampRule(models.Model):
@@ -585,6 +619,8 @@ class CozyNotificationMessage(models.Model):
     image = fields.Binary(attachment=True)
     send_time = fields.Datetime(required=True, default=fields.Datetime.now, index=True)
     read_at = fields.Datetime()
+    push_sent_at = fields.Datetime()
+    push_failed_reason = fields.Text()
     status = fields.Selection(
         [
             ("sent", "Sent"),
@@ -606,6 +642,7 @@ class CozyNotificationMessage(models.Model):
             "image": self.image.decode("ascii") if isinstance(self.image, bytes) else self.image,
             "send_time": fields.Datetime.to_string(self.send_time) if self.send_time else None,
             "read_at": fields.Datetime.to_string(self.read_at) if self.read_at else None,
+            "push_sent_at": fields.Datetime.to_string(self.push_sent_at) if self.push_sent_at else None,
             "status": self.status,
         }
 
@@ -645,3 +682,58 @@ class CozyNotificationMessage(models.Model):
             "read_at": fields.Datetime.now(),
         })
         return self.api_inbox(member.id)
+
+    @api.model
+    def api_pending_push(self, limit=50):
+        limit = max(1, min(int(limit or 50), 100))
+        messages = self.search([
+            ("status", "=", "sent"),
+            ("push_sent_at", "=", False),
+            ("member_id.push_enabled", "=", True),
+            ("member_id.push_subscription_json", "!=", False),
+        ], limit=limit)
+        payloads = []
+        for message in messages:
+            try:
+                subscription = json.loads(message.member_id.push_subscription_json or "{}")
+            except Exception:
+                message.push_failed_reason = "Invalid stored push subscription."
+                continue
+            payloads.append({
+                "message_id": message.id,
+                "member_id": message.member_id.id,
+                "subscription": subscription,
+                "notification": {
+                    "title": message.title,
+                    "body": message.message,
+                    "icon": "/icon.png",
+                    "badge": "/favicon-32.png",
+                    "image": None,
+                    "url": "/user",
+                    "tag": "cozy-notification-%s" % message.id,
+                },
+            })
+        return {"messages": payloads}
+
+    @api.model
+    def api_mark_push_result(self, values):
+        values = values or {}
+        message = self.browse(int(values.get("message_id") or 0)).exists()
+        if not message:
+            raise ValidationError("Notification message not found.")
+        if values.get("ok"):
+            message.write({
+                "push_sent_at": fields.Datetime.now(),
+                "push_failed_reason": False,
+            })
+        else:
+            message.write({
+                "push_sent_at": fields.Datetime.now(),
+                "push_failed_reason": str(values.get("error") or "Push delivery failed."),
+            })
+            if "expired" in message.push_failed_reason.lower() or "gone" in message.push_failed_reason.lower():
+                message.member_id.write({
+                    "push_enabled": False,
+                    "push_subscription_json": False,
+                })
+        return {"ok": True}

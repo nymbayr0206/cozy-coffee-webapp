@@ -39,6 +39,7 @@
                 <field name="phone"/>
                 <field name="stamp_count"/>
                 <field name="marketing_opt_in"/>
+                <field name="push_enabled"/>
                 <field name="last_purchase_at"/>
                 <field name="active"/>
             </list>
@@ -56,6 +57,7 @@
                         <field name="phone"/>
                         <field name="stamp_count"/>
                         <field name="marketing_opt_in"/>
+                        <field name="push_enabled"/>
                         <field name="last_purchase_at"/>
                         <field name="active"/>
                     </group>
@@ -209,11 +211,12 @@
                 <field name="member_id"/>
                 <field name="title"/>
                 <field name="campaign_id"/>
-                <field name="status"/>
-                <field name="read_at"/>
-            </list>
-        </field>
-    </record>
+                        <field name="status"/>
+                        <field name="read_at"/>
+                        <field name="push_sent_at"/>
+                    </list>
+                </field>
+            </record>
 
     <record id="view_cozy_notification_message_form" model="ir.ui.view">
         <field name="name">cozy.notification.message.form</field>
@@ -227,6 +230,10 @@
                         <field name="status"/>
                         <field name="send_time"/>
                         <field name="read_at"/>
+                        <field name="push_sent_at"/>
+                    </group>
+                    <group string="Push">
+                        <field name="push_failed_reason"/>
                     </group>
                     <group string="Message">
                         <field name="title"/>

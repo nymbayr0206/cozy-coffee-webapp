@@ -1,0 +1,23 @@
+{
+  "name": "Cozy Coffee",
+  "short_name": "Cozy",
+  "description": "Cozy Coffee loyalty app",
+  "start_url": "/user",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/apple-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

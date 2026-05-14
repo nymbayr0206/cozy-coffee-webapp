@@ -2433,6 +2433,7 @@ export interface CozyLoyaltyWallet {
     stamp_count: number;
     marketing_opt_in?: boolean;
     last_purchase_at?: string | null;
+    push_enabled?: boolean;
   };
   coupons: Array<{
     id: number;
@@ -2504,6 +2505,44 @@ export function updateOdooNotificationSettings(input: { member_id: number; marke
     input.member_id,
     { marketing_opt_in: input.marketing_opt_in },
   ]);
+}
+
+export interface CozyPendingPushMessage {
+  message_id: number;
+  member_id: number;
+  subscription: {
+    endpoint: string;
+    expirationTime?: number | null;
+    keys: {
+      p256dh: string;
+      auth: string;
+    };
+  };
+  notification: {
+    title: string;
+    body: string;
+    icon?: string;
+    badge?: string;
+    image?: string | null;
+    url?: string;
+    tag?: string;
+  };
+}
+
+export function saveOdooPushSubscription(memberId: number, subscription: unknown) {
+  return callCozyLoyalty<CozyLoyaltyWallet["member"]>("cozy.loyalty.member", "api_save_push_subscription", [memberId, subscription]);
+}
+
+export function disableOdooPushSubscription(memberId: number) {
+  return callCozyLoyalty<CozyLoyaltyWallet["member"]>("cozy.loyalty.member", "api_disable_push_subscription", [memberId]);
+}
+
+export function fetchOdooPendingPushMessages(limit = 50) {
+  return callCozyLoyalty<{ messages: CozyPendingPushMessage[] }>("cozy.notification.message", "api_pending_push", [limit]);
+}
+
+export function markOdooPushResult(input: { message_id: number; ok: boolean; error?: string }) {
+  return callCozyLoyalty<{ ok: boolean }>("cozy.notification.message", "api_mark_push_result", [input]);
 }
 
 export function recordOdooLoyaltyPurchase(input: {

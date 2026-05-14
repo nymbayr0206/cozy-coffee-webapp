@@ -33,6 +33,7 @@ interface CozyUserProfile {
   name: string;
   phone: string;
   marketing_opt_in?: boolean;
+  push_enabled?: boolean;
 }
 
 interface CozyUserCoupon {
@@ -52,6 +53,7 @@ interface CozyUserWallet {
     stamp_count: number;
     marketing_opt_in?: boolean;
     last_purchase_at?: string | null;
+    push_enabled?: boolean;
   };
   coupons: CozyUserCoupon[];
 }
@@ -132,6 +134,27 @@ async function cozyNotificationRequest<T>(path: string, init?: RequestInit) {
   return payload as T;
 }
 
+async function cozyPushRequest<T>(path: string, init?: RequestInit) {
+  const response = await fetch(`/api/cozy/push${path}`, {
+    ...init,
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...init?.headers,
+    },
+  });
+  const payload = (await response.json().catch(() => null)) as { error?: { message?: string; code?: string } } | null;
+
+  if (!response.ok) {
+    const message = payload?.error?.message ?? "Push notification request failed.";
+    const code = payload?.error?.code ? ` (${payload.error.code})` : "";
+    throw new Error(`${message}${code}`);
+  }
+
+  return payload as T;
+}
+
 function friendlyUserError(error: unknown, fallback: string) {
   if (!(error instanceof Error)) return fallback;
   const technicalWords = ["odoo", "loyalty", "wallet", "notification", "cozy.loyalty", "module", "server", "connection", "rpc"];
@@ -147,7 +170,15 @@ function profileFromWallet(wallet: CozyUserWallet): CozyUserProfile {
     name: wallet.member.name,
     phone: wallet.member.phone,
     marketing_opt_in: wallet.member.marketing_opt_in ?? true,
+    push_enabled: wallet.member.push_enabled ?? false,
   };
+}
+
+function urlBase64ToUint8Array(value: string) {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
 }
 
 function formatNotificationTime(value?: string | null) {
@@ -205,6 +236,9 @@ export function CozyUserApp() {
   const [notificationLoading, setNotificationLoading] = useState(false);
   const [notificationNotice, setNotificationNotice] = useState("");
   const [marketingUpdating, setMarketingUpdating] = useState(false);
+  const [pushSupported, setPushSupported] = useState(false);
+  const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
+  const [pushUpdating, setPushUpdating] = useState(false);
 
   const remaining = Math.max(STAMP_TARGET - stamps, 0);
   const progress = useMemo(() => (stamps / STAMP_TARGET) * 100, [stamps]);
@@ -234,6 +268,13 @@ export function CozyUserApp() {
       }
     }
     setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+    setPushSupported(supported);
+    if (supported) setPushPermission(Notification.permission);
   }, []);
 
   useEffect(() => {
@@ -507,6 +548,84 @@ export function CozyUserApp() {
     }
   }
 
+  async function enablePhonePush() {
+    if (!profile?.member_id) return;
+    setPushUpdating(true);
+    setMessage("");
+
+    try {
+      if (!pushSupported) {
+        setMessage("Таны browser утасны notification дэмжихгүй байна.");
+        return;
+      }
+
+      const permission = await Notification.requestPermission();
+      setPushPermission(permission);
+      if (permission !== "granted") {
+        setMessage("Notification зөвшөөрөл өгөөгүй байна.");
+        return;
+      }
+
+      const keyResponse = await cozyPushRequest<{ ok: boolean; public_key: string; configured: boolean }>("/public-key");
+      if (!keyResponse.configured || !keyResponse.public_key) {
+        setMessage("Push notification серверийн түлхүүр тохируулагдаагүй байна.");
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.register("/cozy-sw.js");
+      const existing = await registration.pushManager.getSubscription();
+      const subscription =
+        existing ??
+        (await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(keyResponse.public_key),
+        }));
+
+      const result = await cozyPushRequest<{ ok: boolean; member: CozyUserProfile }>("/subscribe", {
+        method: "POST",
+        body: JSON.stringify({
+          member_id: profile.member_id,
+          subscription: subscription.toJSON(),
+        }),
+      });
+      const nextProfile = { ...profile, push_enabled: result.member.push_enabled ?? true };
+      setProfile(nextProfile);
+      window.localStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+      setMessage("Утасны notification идэвхжлээ.");
+    } catch (error) {
+      setMessage(friendlyUserError(error, "Утасны notification идэвхжүүлж чадсангүй."));
+    } finally {
+      setPushUpdating(false);
+    }
+  }
+
+  async function disablePhonePush() {
+    if (!profile?.member_id) return;
+    setPushUpdating(true);
+    setMessage("");
+
+    try {
+      const registration = await navigator.serviceWorker.getRegistration("/cozy-sw.js");
+      const subscription = await registration?.pushManager.getSubscription();
+      await subscription?.unsubscribe();
+      const result = await cozyPushRequest<{ ok: boolean; member: CozyUserProfile }>("/subscribe", {
+        method: "POST",
+        body: JSON.stringify({
+          member_id: profile.member_id,
+          enabled: false,
+        }),
+      });
+      const nextProfile = { ...profile, push_enabled: result.member.push_enabled ?? false };
+      setProfile(nextProfile);
+      window.localStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+      setMessage("Утасны notification унтарлаа.");
+    } catch (error) {
+      setMessage(friendlyUserError(error, "Утасны notification унтрааж чадсангүй."));
+    } finally {
+      setPushUpdating(false);
+    }
+  }
+
   if (!hydrated) {
     return <main className="cozy-user-app loading" aria-label="Cozy Coffee user app" />;
   }
@@ -765,6 +884,28 @@ export function CozyUserApp() {
                 aria-pressed={profile.marketing_opt_in ?? true}
                 onClick={() => void toggleMarketingOptIn()}
                 disabled={marketingUpdating}
+              >
+                <span />
+              </button>
+            </article>
+
+            <article className="profile-setting-card">
+              <div>
+                <strong>Утасны notification</strong>
+                <span>
+                  {pushSupported
+                    ? profile.push_enabled
+                      ? "Lock screen дээр мэдэгдэл ирнэ."
+                      : "Allow өгөөд утсан дээрээ мэдэгдэл авна."
+                    : "Энэ browser push notification дэмжихгүй байна."}
+                </span>
+              </div>
+              <button
+                className={profile.push_enabled ? "user-toggle active" : "user-toggle"}
+                type="button"
+                aria-pressed={Boolean(profile.push_enabled)}
+                onClick={() => void (profile.push_enabled ? disablePhonePush() : enablePhonePush())}
+                disabled={pushUpdating || !pushSupported || pushPermission === "denied"}
               >
                 <span />
               </button>
