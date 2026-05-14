@@ -124,6 +124,8 @@ export function CozyUserApp() {
   const [authLoading, setAuthLoading] = useState(false);
   const [qrLoadingCouponId, setQrLoadingCouponId] = useState<number | null>(null);
   const [couponQr, setCouponQr] = useState<{ couponId: number; image: string; token: string } | null>(null);
+  const [memberQr, setMemberQr] = useState<{ image: string; token: string } | null>(null);
+  const [memberQrLoading, setMemberQrLoading] = useState(false);
   const [message, setMessage] = useState("");
 
   const remaining = Math.max(STAMP_TARGET - stamps, 0);
@@ -180,6 +182,7 @@ export function CozyUserApp() {
       setStamps(wallet.member.stamp_count);
       setCoupons(wallet.coupons ?? []);
       setCouponQr(null);
+      setMemberQr(null);
       setMessage(authMode === "register" ? "Бүртгэл амжилттай. Таны loyalty карт Odoo дээр үүслээ." : "Тавтай морил.");
       setPassword("");
     } catch (error) {
@@ -210,7 +213,39 @@ export function CozyUserApp() {
   function handleLogout() {
     setProfile(null);
     setAuthMode("login");
+    setCouponQr(null);
+    setMemberQr(null);
     setMessage("");
+  }
+
+  async function handleCreateMemberQr() {
+    if (!profile?.member_id) return;
+
+    if (memberQr) {
+      setMemberQr(null);
+      return;
+    }
+
+    setMemberQrLoading(true);
+    setMessage("");
+
+    try {
+      const result = await userLoyaltyRequest<{
+        ok: boolean;
+        qr_token: string;
+        qr_image: string;
+      }>("/member-qr", {
+        method: "POST",
+        body: JSON.stringify({
+          member_id: profile.member_id,
+        }),
+      });
+      setMemberQr({ image: result.qr_image, token: result.qr_token });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Хэрэглэгчийн QR үүсгэж чадсангүй.");
+    } finally {
+      setMemberQrLoading(false);
+    }
   }
 
   async function handleCreateCouponQr(couponId: number) {
@@ -355,11 +390,22 @@ export function CozyUserApp() {
               </div>
               <div className="loyalty-actions">
                 <div className="loyalty-source-note">Тамга зөвхөн кассын худалдан авалтаар нэмэгдэнэ.</div>
+                <button className="user-secondary-button compact" type="button" onClick={() => void handleCreateMemberQr()} disabled={memberQrLoading}>
+                  <QrCode size={16} aria-hidden="true" />
+                  {memberQrLoading ? "QR үүсгэж байна" : memberQr ? "QR хаах" : "Миний QR"}
+                </button>
                 <button className="user-primary-button compact" type="button" onClick={handleRedeem} disabled={activeCoupons.length === 0}>
                   <Check size={16} aria-hidden="true" />
                   Купон QR авах
                 </button>
               </div>
+              {memberQr ? (
+                <div className="coupon-qr-box member-qr-box">
+                  <img src={memberQr.image} alt="Cozy member QR" />
+                  <p>Касс дээр уншуулж тамгаа нэмүүлнэ.</p>
+                  <code>{memberQr.token}</code>
+                </div>
+              ) : null}
               {message ? <p className="user-message">{message}</p> : null}
             </section>
 

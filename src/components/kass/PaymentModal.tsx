@@ -24,6 +24,7 @@ import {
   getReadableError,
   paymentMethodLabel,
   validateLoyaltyCoupon,
+  validateLoyaltyMember,
 } from "@/lib/kass/client-api";
 import type {
   CartItem,
@@ -66,6 +67,13 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
   const [splitCreditAmount, setSplitCreditAmount] = useState("");
   const [splitQpayAmount, setSplitQpayAmount] = useState("");
   const [loyaltyPhone, setLoyaltyPhone] = useState("");
+  const [loyaltyQrToken, setLoyaltyQrToken] = useState("");
+  const [loyaltyChecking, setLoyaltyChecking] = useState(false);
+  const [loyaltyMember, setLoyaltyMember] = useState<{
+    name: string;
+    phone: string;
+    stamp_count: number;
+  } | null>(null);
   const [splitCardConfirmed, setSplitCardConfirmed] = useState(false);
   const [splitBankConfirmed, setSplitBankConfirmed] = useState(false);
   const [mockSuccess, setMockSuccess] = useState(false);
@@ -111,15 +119,6 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
   const splitBank = Number(splitBankAmount || 0);
   const splitCredit = Number(splitCreditAmount || 0);
   const splitQpay = Number(splitQpayAmount || 0);
-  const eligibleCoffeeQuantity = useMemo(() => {
-    const coffeeWords = ["coffee", "кофе", "латте", "latte", "americano", "американо", "mocha", "мокка", "cappuccino", "капучино"];
-
-    return lines.reduce((sum, item) => {
-      const haystack = `${item.name} ${item.category ?? ""}`.toLowerCase();
-      const eligible = coffeeWords.some((word) => haystack.includes(word));
-      return sum + (eligible ? item.quantity : 0);
-    }, 0);
-  }, [lines]);
   const splitTotal = splitCash + splitCard + splitBank + splitCredit + splitQpay;
   const splitRemaining = total - splitTotal;
   const splitMatchesTotal = Math.abs(splitRemaining) <= 0.01;
@@ -222,6 +221,9 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     setSplitCreditAmount("");
     setSplitQpayAmount("");
     setLoyaltyPhone("");
+    setLoyaltyQrToken("");
+    setLoyaltyChecking(false);
+    setLoyaltyMember(null);
     setSplitCardConfirmed(false);
     setSplitBankConfirmed(false);
     setMockSuccess(false);
@@ -295,7 +297,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
         coupon_qr_token: options?.couponQrToken ?? null,
         coupon_pin: options?.couponPin ?? null,
         loyalty_phone: loyaltyPhone.trim() || null,
-        loyalty_coffee_quantity: loyaltyPhone.trim() ? eligibleCoffeeQuantity : 0,
+        loyalty_qr_token: loyaltyQrToken.trim() || null,
       });
 
       onPaymentSuccess({
@@ -366,6 +368,28 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     }
   }
 
+  async function handleLoyaltyMemberCheck() {
+    setLoyaltyChecking(true);
+    setLoyaltyMember(null);
+    setError(null);
+
+    try {
+      const result = await validateLoyaltyMember({
+        qr_token: loyaltyQrToken.trim(),
+      });
+      setLoyaltyMember({
+        name: result.member.name,
+        phone: result.member.phone,
+        stamp_count: result.member.stamp_count,
+      });
+      setLoyaltyPhone("");
+    } catch (loyaltyError) {
+      setError(getReadableError(loyaltyError));
+    } finally {
+      setLoyaltyChecking(false);
+    }
+  }
+
   const qpayStateLabel = qpayInvoice?.state
     ? qpayInvoice.state === "paid"
       ? "Төлөгдсөн"
@@ -420,20 +444,46 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
           {method !== "coupon" ? (
             <div className="loyalty-phone-box">
               <label className="field">
-                <span>Cozy loyalty утас</span>
+                <span>Cozy хэрэглэгчийн QR</span>
+                <input
+                  value={loyaltyQrToken}
+                  onChange={(event) => {
+                    setLoyaltyQrToken(event.target.value);
+                    setLoyaltyMember(null);
+                  }}
+                  placeholder="COZY-MEMBER:..."
+                  autoComplete="off"
+                />
+              </label>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void handleLoyaltyMemberCheck()}
+                disabled={!loyaltyQrToken.trim() || loyaltyChecking || submitting}
+              >
+                {loyaltyChecking ? <Loader2 className="spin-icon" size={17} aria-hidden="true" /> : <QrCode size={17} aria-hidden="true" />}
+                <span>{loyaltyChecking ? "Шалгаж байна" : "QR шалгах"}</span>
+              </button>
+              <label className="field">
+                <span>Эсвэл Cozy loyalty утас</span>
                 <input
                   value={loyaltyPhone}
-                  onChange={(event) => setLoyaltyPhone(event.target.value)}
-                  placeholder="9900-1234"
+                  onChange={(event) => {
+                    setLoyaltyPhone(event.target.value);
+                    setLoyaltyQrToken("");
+                    setLoyaltyMember(null);
+                  }}
+                  placeholder="Утасны дугаар"
                   inputMode="tel"
                   autoComplete="off"
                 />
               </label>
-              <p>
-                {eligibleCoffeeQuantity > 0
-                  ? `${eligibleCoffeeQuantity} кофе худалдан авалтаар тамга нэмэгдэнэ.`
-                  : "Кофе төрлийн бүтээгдэхүүн байхгүй байна."}
-              </p>
+              {loyaltyMember ? (
+                <div className="success-box">
+                  {loyaltyMember.name} баталгаажлаа. Одоогийн тамга: {loyaltyMember.stamp_count} / 9
+                </div>
+              ) : null}
+              <p>Тамга Odoo дээрх Cozy Loyalty / Stamp rules тохиргоогоор тухайн бараанаас автоматаар бодогдоно.</p>
             </div>
           ) : null}
 

@@ -2455,6 +2455,11 @@ export interface CozyCouponValidation {
   reward_product_name: string;
 }
 
+export interface CozyMemberValidation {
+  ok: boolean;
+  member: CozyLoyaltyWallet["member"];
+}
+
 export function registerOdooLoyaltyMember(input: { name: string; phone: string; pin: string }) {
   return callCozyLoyalty<CozyLoyaltyWallet>("cozy.loyalty.member", "api_register", [input]);
 }
@@ -2467,8 +2472,26 @@ export function fetchOdooLoyaltyWallet(memberId: number) {
   return callCozyLoyalty<CozyLoyaltyWallet>("cozy.loyalty.member", "api_wallet", [memberId]);
 }
 
-export function recordOdooLoyaltyPurchase(input: { member_id?: number | null; phone?: string | null; coffee_quantity: number }) {
+export function recordOdooLoyaltyPurchase(input: {
+  member_id?: number | null;
+  phone?: string | null;
+  member_qr_token?: string | null;
+  coffee_quantity?: number;
+  lines?: Array<{ product_id: number; quantity: number; price?: number }>;
+}) {
   return callCozyLoyalty<CozyLoyaltyWallet>("cozy.loyalty.member", "api_record_purchase", [input]);
+}
+
+export function createOdooLoyaltyMemberQr(memberId: number) {
+  return callCozyLoyalty<{ member: CozyLoyaltyWallet["member"]; qr_token: string }>(
+    "cozy.loyalty.member",
+    "api_create_member_qr",
+    [memberId],
+  );
+}
+
+export function validateOdooLoyaltyMemberQr(qrToken: string) {
+  return callCozyLoyalty<CozyMemberValidation>("cozy.loyalty.member", "api_member_from_qr", [qrToken]);
 }
 
 export function createOdooLoyaltyCouponQr(memberId: number, couponId: number) {

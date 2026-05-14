@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_cozy_loyalty_members" model="ir.actions.act_window">
+        <field name="name">Loyalty members</field>
+        <field name="res_model">cozy.loyalty.member</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_cozy_loyalty_coupons" model="ir.actions.act_window">
+        <field name="name">Loyalty coupons</field>
+        <field name="res_model">cozy.loyalty.coupon</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_cozy_loyalty_stamp_rules" model="ir.actions.act_window">
+        <field name="name">Stamp rules</field>
+        <field name="res_model">cozy.loyalty.stamp.rule</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="view_cozy_loyalty_member_list" model="ir.ui.view">
+        <field name="name">cozy.loyalty.member.list</field>
+        <field name="model">cozy.loyalty.member</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="display_name"/>
+                <field name="phone"/>
+                <field name="stamp_count"/>
+                <field name="active"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cozy_loyalty_member_form" model="ir.ui.view">
+        <field name="name">cozy.loyalty.member.form</field>
+        <field name="model">cozy.loyalty.member</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="partner_id"/>
+                        <field name="phone"/>
+                        <field name="stamp_count"/>
+                        <field name="active"/>
+                    </group>
+                    <notebook>
+                        <page string="Coupons">
+                            <field name="coupon_ids" readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_cozy_loyalty_coupon_list" model="ir.ui.view">
+        <field name="name">cozy.loyalty.coupon.list</field>
+        <field name="model">cozy.loyalty.coupon</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="code"/>
+                <field name="partner_id"/>
+                <field name="reward_product_id"/>
+                <field name="state"/>
+                <field name="expires_at"/>
+                <field name="used_at"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cozy_loyalty_coupon_form" model="ir.ui.view">
+        <field name="name">cozy.loyalty.coupon.form</field>
+        <field name="model">cozy.loyalty.coupon</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="code"/>
+                        <field name="member_id"/>
+                        <field name="partner_id"/>
+                        <field name="reward_product_id"/>
+                        <field name="state"/>
+                    </group>
+                    <group>
+                        <field name="expires_at"/>
+                        <field name="used_at"/>
+                        <field name="used_order_ref"/>
+                        <field name="used_session_id"/>
+                        <field name="used_cashier_name"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_cozy_loyalty_stamp_rule_list" model="ir.ui.view">
+        <field name="name">cozy.loyalty.stamp.rule.list</field>
+        <field name="model">cozy.loyalty.stamp.rule</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="stamp_per_unit"/>
+                <field name="active"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cozy_loyalty_stamp_rule_form" model="ir.ui.view">
+        <field name="name">cozy.loyalty.stamp.rule.form</field>
+        <field name="model">cozy.loyalty.stamp.rule</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="active"/>
+                        <field name="sequence"/>
+                        <field name="stamp_per_unit"/>
+                    </group>
+                    <group string="Stamp applies when any selector matches">
+                        <field name="product_ids" widget="many2many_tags"/>
+                        <field name="pos_category_ids" widget="many2many_tags"/>
+                        <field name="product_category_ids" widget="many2many_tags"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <menuitem id="menu_cozy_loyalty_root" name="Cozy Loyalty" sequence="60"/>
+    <menuitem id="menu_cozy_loyalty_members" name="Members" parent="menu_cozy_loyalty_root" action="action_cozy_loyalty_members" sequence="10"/>
+    <menuitem id="menu_cozy_loyalty_coupons" name="Coupons" parent="menu_cozy_loyalty_root" action="action_cozy_loyalty_coupons" sequence="20"/>
+    <menuitem id="menu_cozy_loyalty_stamp_rules" name="Stamp rules" parent="menu_cozy_loyalty_root" action="action_cozy_loyalty_stamp_rules" sequence="30"/>
+</odoo>

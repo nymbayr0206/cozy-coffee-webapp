@@ -8,6 +8,7 @@
     "depends": ["base", "product", "sale", "point_of_sale"],
     "data": [
         "security/ir.model.access.csv",
+        "views/loyalty_views.xml",
     ],
     "post_init_hook": "post_init_hook",
     "installable": True,

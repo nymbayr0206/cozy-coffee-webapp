@@ -17,6 +17,7 @@ class CozyLoyaltyMember(models.Model):
     display_name = fields.Char(related="partner_id.display_name", store=True)
     phone = fields.Char(required=True, index=True)
     pin_hash = fields.Char()
+    qr_secret = fields.Char()
     stamp_count = fields.Integer(default=0)
     active = fields.Boolean(default=True)
     coupon_ids = fields.One2many("cozy.loyalty.coupon", "member_id")
@@ -42,6 +43,8 @@ class CozyLoyaltyMember(models.Model):
 
     def _check_pin(self, pin):
         self.ensure_one()
+        if not self.pin_hash:
+            return False
         try:
             salt, expected = self.pin_hash.split("$", 1)
         except ValueError:
@@ -60,17 +63,21 @@ class CozyLoyaltyMember(models.Model):
             "used_at": fields.Datetime.to_string(coupon.used_at) if coupon.used_at else None,
         }
 
+    def _member_payload(self):
+        self.ensure_one()
+        return {
+            "id": self.id,
+            "partner_id": self.partner_id.id,
+            "name": self.partner_id.display_name,
+            "phone": self.phone,
+            "stamp_count": self.stamp_count,
+        }
+
     def _wallet_payload(self):
         self.ensure_one()
         coupons = self.coupon_ids.sorted(lambda item: item.create_date or fields.Datetime.now(), reverse=True)
         return {
-            "member": {
-                "id": self.id,
-                "partner_id": self.partner_id.id,
-                "name": self.partner_id.display_name,
-                "phone": self.phone,
-                "stamp_count": self.stamp_count,
-            },
+            "member": self._member_payload(),
             "coupons": [self._coupon_payload(coupon) for coupon in coupons],
         }
 
@@ -93,6 +100,62 @@ class CozyLoyaltyMember(models.Model):
             "qr_secret": secrets.token_urlsafe(24),
             "expires_at": fields.Datetime.now() + timedelta(days=365),
         })
+
+    def _ensure_qr_secret(self):
+        self.ensure_one()
+        if not self.qr_secret:
+            self.qr_secret = secrets.token_urlsafe(24)
+        return self.qr_secret
+
+    def member_qr_token(self):
+        self.ensure_one()
+        return "COZY-MEMBER:%s:%s" % (self.id, self._ensure_qr_secret())
+
+    @api.model
+    def _find_member_by_token(self, qr_token):
+        parts = str(qr_token or "").strip().split(":")
+        if len(parts) != 3 or parts[0] != "COZY-MEMBER":
+            raise ValidationError("Invalid Cozy member QR.")
+        try:
+            member_id = int(parts[1])
+        except (TypeError, ValueError):
+            raise ValidationError("Invalid Cozy member QR.")
+        member = self.browse(member_id).exists()
+        if not member or not member.qr_secret or not hmac.compare_digest(member.qr_secret, parts[2]):
+            raise ValidationError("Invalid Cozy member QR.")
+        if not member.active:
+            raise ValidationError("Loyalty member is inactive.")
+        return member
+
+    @api.model
+    def _stamp_quantity_from_lines(self, lines):
+        lines = lines or []
+        if not isinstance(lines, list):
+            return 0
+
+        product_ids = []
+        normalized_lines = []
+        for line in lines:
+            if not isinstance(line, dict):
+                continue
+            product_id = int(line.get("product_id") or 0)
+            quantity = float(line.get("quantity") or line.get("qty") or 0)
+            if product_id > 0 and quantity > 0:
+                product_ids.append(product_id)
+                normalized_lines.append({"product_id": product_id, "quantity": quantity})
+
+        if not normalized_lines:
+            return 0
+
+        products = {product.id: product for product in self.env["product.product"].browse(product_ids).exists()}
+        rule_model = self.env["cozy.loyalty.stamp.rule"]
+        total = 0.0
+        for line in normalized_lines:
+            product = products.get(line["product_id"])
+            if product:
+                total += rule_model.stamps_for_product(product, line["quantity"])
+
+        return int(total)
 
     @api.model
     def api_register(self, values):
@@ -145,6 +208,9 @@ class CozyLoyaltyMember(models.Model):
     def api_record_purchase(self, values):
         values = values or {}
         member = self.browse(int(values.get("member_id") or 0)).exists()
+        member_qr_token = values.get("member_qr_token")
+        if not member and member_qr_token:
+            member = self._find_member_by_token(member_qr_token)
         phone = self._normalize_phone(values.get("phone"))
         if not member and phone:
             member = self.search([("phone", "=", phone)], limit=1)
@@ -163,7 +229,9 @@ class CozyLoyaltyMember(models.Model):
         if not member or not member.active:
             raise ValidationError("Loyalty member not found.")
 
-        quantity = int(values.get("coffee_quantity") or 0)
+        quantity = self._stamp_quantity_from_lines(values.get("lines"))
+        if quantity <= 0:
+            quantity = int(values.get("coffee_quantity") or 0)
         if quantity <= 0:
             return member._wallet_payload()
 
@@ -173,6 +241,24 @@ class CozyLoyaltyMember(models.Model):
             member._create_reward_coupon()
 
         return member._wallet_payload()
+
+    @api.model
+    def api_create_member_qr(self, member_id):
+        member = self.browse(int(member_id)).exists()
+        if not member or not member.active:
+            raise ValidationError("Loyalty member not found.")
+        return {
+            "member": member._member_payload(),
+            "qr_token": member.member_qr_token(),
+        }
+
+    @api.model
+    def api_member_from_qr(self, qr_token):
+        member = self._find_member_by_token(qr_token)
+        return {
+            "ok": True,
+            "member": member._member_payload(),
+        }
 
     @api.model
     def api_create_coupon_qr(self, member_id, coupon_id):
@@ -189,6 +275,47 @@ class CozyLoyaltyMember(models.Model):
             "coupon": member._coupon_payload(coupon),
             "qr_token": coupon.qr_token(),
         }
+
+
+class CozyLoyaltyStampRule(models.Model):
+    _name = "cozy.loyalty.stamp.rule"
+    _description = "Cozy Coffee Loyalty Stamp Rule"
+    _order = "sequence, id"
+
+    name = fields.Char(required=True)
+    active = fields.Boolean(default=True)
+    sequence = fields.Integer(default=10)
+    product_ids = fields.Many2many("product.product", string="Stamp products")
+    pos_category_ids = fields.Many2many("pos.category", string="POS categories")
+    product_category_ids = fields.Many2many("product.category", string="Product categories")
+    stamp_per_unit = fields.Float(default=1.0, required=True)
+
+    def _product_pos_categories(self, product):
+        if "pos_categ_ids" in product._fields:
+            return product.pos_categ_ids
+        template = product.product_tmpl_id
+        if template and "pos_categ_ids" in template._fields:
+            return template.pos_categ_ids
+        return self.env["pos.category"]
+
+    def _matches_product(self, product):
+        self.ensure_one()
+        if self.product_ids and product in self.product_ids:
+            return True
+        if self.product_category_ids and product.categ_id in self.product_category_ids:
+            return True
+        pos_categories = self._product_pos_categories(product)
+        if self.pos_category_ids and any(category in self.pos_category_ids for category in pos_categories):
+            return True
+        return not self.product_ids and not self.product_category_ids and not self.pos_category_ids
+
+    @api.model
+    def stamps_for_product(self, product, quantity):
+        rules = self.search([("active", "=", True)])
+        for rule in rules:
+            if rule._matches_product(product):
+                return max(0.0, float(quantity or 0) * rule.stamp_per_unit)
+        return 0.0
 
 
 class CozyLoyaltyCoupon(models.Model):
@@ -226,7 +353,11 @@ class CozyLoyaltyCoupon(models.Model):
         parts = str(qr_token or "").strip().split(":")
         if len(parts) != 3 or parts[0] != "COZY":
             raise ValidationError("Invalid Cozy coupon QR.")
-        coupon = self.browse(int(parts[1])).exists()
+        try:
+            coupon_id = int(parts[1])
+        except (TypeError, ValueError):
+            raise ValidationError("Invalid Cozy coupon QR.")
+        coupon = self.browse(coupon_id).exists()
         if not coupon or not hmac.compare_digest(coupon.qr_secret, parts[2]):
             raise ValidationError("Invalid Cozy coupon QR.")
         return coupon

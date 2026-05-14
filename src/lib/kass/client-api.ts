@@ -348,6 +348,22 @@ export function validateLoyaltyCoupon(body: { qr_token: string; pin: string }) {
   });
 }
 
+export function validateLoyaltyMember(body: { qr_token: string }) {
+  return request<{
+    ok: boolean;
+    member: {
+      id: number;
+      partner_id: number;
+      name: string;
+      phone: string;
+      stamp_count: number;
+    };
+  }>("/loyalty/member", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 export function returnKassOrder(reference: string | number) {
   return request<ReturnOrderResponse>(`/order/${encodeURIComponent(String(reference))}`, {
     method: "DELETE",

@@ -8,6 +8,7 @@ import {
   redeemOdooLoyaltyCoupon,
   recordOdooLoyaltyPurchase,
   validateOdooLoyaltyCoupon,
+  validateOdooLoyaltyMemberQr,
 } from "@/lib/kass/odoo";
 import { addOrder, assertSessionOpen, nextReceiptNumber } from "@/lib/kass/store";
 import {
@@ -32,6 +33,7 @@ interface CreateOrderBody {
   coupon_qr_token?: unknown;
   coupon_pin?: unknown;
   loyalty_phone?: unknown;
+  loyalty_qr_token?: unknown;
   loyalty_coffee_quantity?: unknown;
 }
 
@@ -62,6 +64,8 @@ export async function POST(request: Request) {
     const couponPin = couponPayment ? requireString(body.coupon_pin, "coupon_pin") : null;
     const loyaltyPhone =
       typeof body.loyalty_phone === "string" && body.loyalty_phone.trim() ? body.loyalty_phone.trim() : null;
+    const loyaltyQrToken =
+      typeof body.loyalty_qr_token === "string" && body.loyalty_qr_token.trim() ? body.loyalty_qr_token.trim() : null;
     const loyaltyCoffeeQuantity =
       body.loyalty_coffee_quantity === undefined || body.loyalty_coffee_quantity === null || body.loyalty_coffee_quantity === ""
         ? 0
@@ -75,6 +79,9 @@ export async function POST(request: Request) {
 
     if (couponPayment && couponQrToken && couponPin) {
       await validateOdooLoyaltyCoupon(couponQrToken, couponPin);
+    }
+    if (!couponPayment && loyaltyQrToken) {
+      await validateOdooLoyaltyMemberQr(loyaltyQrToken);
     }
 
     const stockConsumptions = await previewOdooRecipeStockConsumption(lines);
@@ -91,10 +98,12 @@ export async function POST(request: Request) {
         order_ref: odooOrderId,
       });
     }
-    if (!couponPayment && loyaltyPhone && loyaltyCoffeeQuantity > 0) {
+    if (!couponPayment && (loyaltyQrToken || loyaltyPhone)) {
       await recordOdooLoyaltyPurchase({
+        member_qr_token: loyaltyQrToken,
         phone: loyaltyPhone,
         coffee_quantity: loyaltyCoffeeQuantity,
+        lines,
       });
     }
 

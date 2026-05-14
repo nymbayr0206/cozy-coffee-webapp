@@ -404,6 +404,7 @@ export interface CreateOrderRequest {
   coupon_qr_token?: string | null;
   coupon_pin?: string | null;
   loyalty_phone?: string | null;
+  loyalty_qr_token?: string | null;
   loyalty_coffee_quantity?: number | null;
 }
 
