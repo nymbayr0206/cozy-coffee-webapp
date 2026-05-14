@@ -3944,7 +3944,7 @@ nextjs-portal {
   right: 12px;
   bottom: 12px;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   min-height: 72px;
   padding: 8px 10px;
   background: rgba(255, 255, 255, 0.96);
@@ -3970,10 +3970,76 @@ nextjs-portal {
 }
 
 .coupon-screen,
+.scan-screen,
 .profile-screen {
   display: grid;
   gap: 18px;
   padding: 28px 0 0;
+}
+
+.scan-card {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  padding: 22px 18px;
+  background: #ffffff;
+  border: 1px solid #e4e4e6;
+  border-radius: 18px;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.045);
+}
+
+.scan-symbol {
+  width: 154px;
+  height: 154px;
+  display: grid;
+  place-items: center;
+  color: #111111;
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 24px;
+}
+
+.scan-copy {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.scan-copy strong {
+  color: #111111;
+  font-size: 17px;
+}
+
+.scan-copy span,
+.scan-member span,
+.scan-note {
+  color: #666666;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.scan-member {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  padding: 13px 14px;
+  background: #f7f7f8;
+  border: 1px solid #e1e1e3;
+  border-radius: 14px;
+}
+
+.scan-member strong {
+  color: #111111;
+  font-size: 21px;
+  letter-spacing: 0;
+}
+
+.scan-note {
+  padding: 12px 14px;
+  background: #f7f7f8;
+  border: 1px solid #e1e1e3;
+  border-radius: 14px;
 }
 
 .coupon-screen h1 {

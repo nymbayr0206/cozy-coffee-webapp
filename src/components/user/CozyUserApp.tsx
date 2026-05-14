@@ -22,7 +22,7 @@ import {
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type AuthMode = "login" | "register";
-type TabKey = "home" | "coupons" | "profile";
+type TabKey = "home" | "scan" | "coupons" | "profile";
 
 interface CozyUserProfile {
   member_id?: number;
@@ -427,6 +427,34 @@ export function CozyUserApp() {
           </section>
         ) : null}
 
+        {activeTab === "scan" ? (
+          <section className="scan-screen">
+            <header className="profile-top">
+              <span />
+              <h1>QR уншуулах</h1>
+              <span />
+            </header>
+
+            <article className="scan-card">
+              <div className="scan-symbol" aria-hidden="true">
+                <QrCode size={78} strokeWidth={1.8} />
+              </div>
+              <div className="scan-copy">
+                <strong>Касс дээр энэ хэсгийг харуулна</strong>
+                <span>Ажилтан таны QR эсвэл утасны дугаарыг уншуулж тамга нэмнэ.</span>
+              </div>
+              <div className="scan-member">
+                <span>Утасны дугаар</span>
+                <strong>{profile.phone}</strong>
+              </div>
+            </article>
+
+            <div className="scan-note">
+              Худалдан авалт бүрийн дараа тамга таны карт дээр автоматаар шинэчлэгдэнэ.
+            </div>
+          </section>
+        ) : null}
+
         {activeTab === "profile" ? (
           <section className="profile-screen">
             <header className="profile-top">
@@ -489,6 +517,7 @@ export function CozyUserApp() {
         <nav className="user-bottom-nav" aria-label="User app menu">
           {[
             ["home", "Нүүр", Home],
+            ["scan", "QR", QrCode],
             ["coupons", "Купон", Ticket],
             ["profile", "Профайл", User],
           ].map(([key, label, Icon]) => {
