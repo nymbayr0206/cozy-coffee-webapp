@@ -7,16 +7,21 @@ export const runtime = "nodejs";
 
 interface LoyaltyPurchaseBody {
   member_id?: unknown;
+  phone?: unknown;
   coffee_quantity?: unknown;
 }
 
 export async function POST(request: Request) {
   try {
     const body = await readJsonBody<LoyaltyPurchaseBody>(request);
-    const memberId = Math.trunc(parseNumber(body.member_id, "member_id", { min: 1 }));
+    const memberId =
+      body.member_id === undefined || body.member_id === null || body.member_id === ""
+        ? null
+        : Math.trunc(parseNumber(body.member_id, "member_id", { min: 1 }));
     const coffeeQuantity = Math.trunc(parseNumber(body.coffee_quantity, "coffee_quantity", { min: 1 }));
     const wallet = await recordOdooLoyaltyPurchase({
       member_id: memberId,
+      phone: typeof body.phone === "string" ? body.phone : null,
       coffee_quantity: coffeeQuantity,
     });
 

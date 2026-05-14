@@ -16,7 +16,7 @@ class CozyLoyaltyMember(models.Model):
     partner_id = fields.Many2one("res.partner", required=True, ondelete="cascade", index=True)
     display_name = fields.Char(related="partner_id.display_name", store=True)
     phone = fields.Char(required=True, index=True)
-    pin_hash = fields.Char(required=True)
+    pin_hash = fields.Char()
     stamp_count = fields.Integer(default=0)
     active = fields.Boolean(default=True)
     coupon_ids = fields.One2many("cozy.loyalty.coupon", "member_id")
@@ -106,8 +106,10 @@ class CozyLoyaltyMember(models.Model):
 
         member = self.search([("phone", "=", phone)], limit=1)
         if member:
-            if not member._check_pin(pin):
+            if member.pin_hash and not member._check_pin(pin):
                 raise ValidationError("Wrong transaction PIN.")
+            if not member.pin_hash:
+                member.pin_hash = self._hash_pin(pin)
             if name and member.partner_id.name != name:
                 member.partner_id.write({"name": name})
             return member._wallet_payload()
@@ -128,7 +130,7 @@ class CozyLoyaltyMember(models.Model):
     def api_login(self, phone, pin):
         normalized_phone = self._normalize_phone(phone)
         member = self.search([("phone", "=", normalized_phone), ("active", "=", True)], limit=1)
-        if not member or not member._check_pin(pin):
+        if not member or not member.pin_hash or not member._check_pin(pin):
             raise ValidationError("Phone number or transaction PIN is wrong.")
         return member._wallet_payload()
 
@@ -143,8 +145,21 @@ class CozyLoyaltyMember(models.Model):
     def api_record_purchase(self, values):
         values = values or {}
         member = self.browse(int(values.get("member_id") or 0)).exists()
-        if not member and values.get("phone"):
-            member = self.search([("phone", "=", self._normalize_phone(values.get("phone")))], limit=1)
+        phone = self._normalize_phone(values.get("phone"))
+        if not member and phone:
+            member = self.search([("phone", "=", phone)], limit=1)
+        if not member and phone:
+            partner = self.env["res.partner"].search([("phone", "=", phone)], limit=1)
+            if not partner:
+                partner = self.env["res.partner"].create({
+                    "name": phone,
+                    "phone": phone,
+                    "customer_rank": 1,
+                })
+            member = self.create({
+                "partner_id": partner.id,
+                "phone": phone,
+            })
         if not member or not member.active:
             raise ValidationError("Loyalty member not found.")
 

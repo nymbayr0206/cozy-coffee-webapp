@@ -11,7 +11,6 @@ import {
   LockKeyhole,
   LogOut,
   Phone,
-  Plus,
   QrCode,
   RotateCcw,
   Settings,
@@ -224,26 +223,6 @@ export function CozyUserApp() {
     }
   }
 
-  async function handleAddStamp() {
-    if (!profile?.member_id) return;
-
-    try {
-      const wallet = await userLoyaltyRequest<{ ok: boolean } & CozyUserWallet>("/purchase", {
-        method: "POST",
-        body: JSON.stringify({
-          member_id: profile.member_id,
-          coffee_quantity: 1,
-        }),
-      });
-      setStamps(wallet.member.stamp_count);
-      setCoupons(wallet.coupons ?? []);
-      window.localStorage.setItem(STAMPS_KEY, String(wallet.member.stamp_count));
-      setMessage("Нэг кофе Odoo дээр бүртгэгдэж, тамга шинэчлэгдлээ.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Тамга нэмэхэд алдаа гарлаа.");
-    }
-  }
-
   function handleRedeem() {
     setActiveTab("coupons");
     setMessage("Идэвхтэй купоноос QR үүсгээд касс дээр уншуулна уу.");
@@ -419,10 +398,7 @@ export function CozyUserApp() {
                 <span style={{ width: `${progress}%` }} />
               </div>
               <div className="loyalty-actions">
-                <button className="user-secondary-button" type="button" onClick={() => void handleAddStamp()}>
-                  <Plus size={16} aria-hidden="true" />
-                  Тамга нэмэх
-                </button>
+                <div className="loyalty-source-note">Тамга зөвхөн кассын худалдан авалтаар нэмэгдэнэ.</div>
                 <button className="user-primary-button compact" type="button" onClick={handleRedeem} disabled={activeCoupons.length === 0}>
                   <Check size={16} aria-hidden="true" />
                   Купон QR авах

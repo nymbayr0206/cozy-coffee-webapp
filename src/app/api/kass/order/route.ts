@@ -6,6 +6,7 @@ import {
   linkOdooQpayTransactionToSaleOrder,
   previewOdooRecipeStockConsumption,
   redeemOdooLoyaltyCoupon,
+  recordOdooLoyaltyPurchase,
   validateOdooLoyaltyCoupon,
 } from "@/lib/kass/odoo";
 import { addOrder, assertSessionOpen, nextReceiptNumber } from "@/lib/kass/store";
@@ -30,6 +31,8 @@ interface CreateOrderBody {
   qpay_transaction_id?: unknown;
   coupon_qr_token?: unknown;
   coupon_pin?: unknown;
+  loyalty_phone?: unknown;
+  loyalty_coffee_quantity?: unknown;
 }
 
 export async function POST(request: Request) {
@@ -57,6 +60,12 @@ export async function POST(request: Request) {
         : null;
     const couponQrToken = couponPayment ? requireString(body.coupon_qr_token, "coupon_qr_token") : null;
     const couponPin = couponPayment ? requireString(body.coupon_pin, "coupon_pin") : null;
+    const loyaltyPhone =
+      typeof body.loyalty_phone === "string" && body.loyalty_phone.trim() ? body.loyalty_phone.trim() : null;
+    const loyaltyCoffeeQuantity =
+      body.loyalty_coffee_quantity === undefined || body.loyalty_coffee_quantity === null || body.loyalty_coffee_quantity === ""
+        ? 0
+        : Math.trunc(parseNumber(body.loyalty_coffee_quantity, "loyalty_coffee_quantity", { min: 0 }));
 
     if (creditPayment && !partnerId) {
       throw new KassServerError("validation_error", "Зээлээр бүртгэх харилцагч сонгоно уу.", 400);
@@ -80,6 +89,12 @@ export async function POST(request: Request) {
         pin: couponPin,
         session_id: sessionId,
         order_ref: odooOrderId,
+      });
+    }
+    if (!couponPayment && loyaltyPhone && loyaltyCoffeeQuantity > 0) {
+      await recordOdooLoyaltyPurchase({
+        phone: loyaltyPhone,
+        coffee_quantity: loyaltyCoffeeQuantity,
       });
     }
 

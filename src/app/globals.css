@@ -1283,6 +1283,23 @@ nextjs-portal {
   border-color: var(--teal);
 }
 
+.loyalty-phone-box {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.loyalty-phone-box p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .payment-method-panel {
   display: grid;
   grid-template-columns: 190px minmax(0, 1fr);
@@ -3560,6 +3577,19 @@ nextjs-portal {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.18fr);
   gap: 8px;
+}
+
+.loyalty-source-note {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  color: #666666;
+  background: #f7f7f7;
+  border: 1px solid #e3e3e3;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.25;
 }
 
 .user-primary-button,

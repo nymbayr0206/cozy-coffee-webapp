@@ -65,6 +65,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
   const [splitBankAmount, setSplitBankAmount] = useState("");
   const [splitCreditAmount, setSplitCreditAmount] = useState("");
   const [splitQpayAmount, setSplitQpayAmount] = useState("");
+  const [loyaltyPhone, setLoyaltyPhone] = useState("");
   const [splitCardConfirmed, setSplitCardConfirmed] = useState(false);
   const [splitBankConfirmed, setSplitBankConfirmed] = useState(false);
   const [mockSuccess, setMockSuccess] = useState(false);
@@ -110,6 +111,15 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
   const splitBank = Number(splitBankAmount || 0);
   const splitCredit = Number(splitCreditAmount || 0);
   const splitQpay = Number(splitQpayAmount || 0);
+  const eligibleCoffeeQuantity = useMemo(() => {
+    const coffeeWords = ["coffee", "кофе", "латте", "latte", "americano", "американо", "mocha", "мокка", "cappuccino", "капучино"];
+
+    return lines.reduce((sum, item) => {
+      const haystack = `${item.name} ${item.category ?? ""}`.toLowerCase();
+      const eligible = coffeeWords.some((word) => haystack.includes(word));
+      return sum + (eligible ? item.quantity : 0);
+    }, 0);
+  }, [lines]);
   const splitTotal = splitCash + splitCard + splitBank + splitCredit + splitQpay;
   const splitRemaining = total - splitTotal;
   const splitMatchesTotal = Math.abs(splitRemaining) <= 0.01;
@@ -211,6 +221,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     setSplitBankAmount("");
     setSplitCreditAmount("");
     setSplitQpayAmount("");
+    setLoyaltyPhone("");
     setSplitCardConfirmed(false);
     setSplitBankConfirmed(false);
     setMockSuccess(false);
@@ -283,6 +294,8 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
         qpay_transaction_id: qpayPayment ? qpayInvoice?.transaction_id ?? null : null,
         coupon_qr_token: options?.couponQrToken ?? null,
         coupon_pin: options?.couponPin ?? null,
+        loyalty_phone: loyaltyPhone.trim() || null,
+        loyalty_coffee_quantity: loyaltyPhone.trim() ? eligibleCoffeeQuantity : 0,
       });
 
       onPaymentSuccess({
@@ -404,6 +417,26 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
         </div>
 
         <div className="payment-body">
+          {method !== "coupon" ? (
+            <div className="loyalty-phone-box">
+              <label className="field">
+                <span>Cozy loyalty утас</span>
+                <input
+                  value={loyaltyPhone}
+                  onChange={(event) => setLoyaltyPhone(event.target.value)}
+                  placeholder="9900-1234"
+                  inputMode="tel"
+                  autoComplete="off"
+                />
+              </label>
+              <p>
+                {eligibleCoffeeQuantity > 0
+                  ? `${eligibleCoffeeQuantity} кофе худалдан авалтаар тамга нэмэгдэнэ.`
+                  : "Кофе төрлийн бүтээгдэхүүн байхгүй байна."}
+              </p>
+            </div>
+          ) : null}
+
           {method === "qpay" ? (
             <div className="payment-method-panel">
               <div className="qr-placeholder">

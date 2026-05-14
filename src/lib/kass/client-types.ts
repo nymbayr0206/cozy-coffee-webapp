@@ -403,6 +403,8 @@ export interface CreateOrderRequest {
   qpay_transaction_id?: number | null;
   coupon_qr_token?: string | null;
   coupon_pin?: string | null;
+  loyalty_phone?: string | null;
+  loyalty_coffee_quantity?: number | null;
 }
 
 export interface CreateOrderResponse {
