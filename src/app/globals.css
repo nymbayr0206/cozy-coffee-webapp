@@ -3463,8 +3463,7 @@ nextjs-portal {
 .daily-product,
 .profile-card,
 .profile-stamp-card,
-.ticket-card,
-.auth-loyalty-preview {
+.ticket-card {
   background: #ffffff;
   border: 1px solid #e8e8e8;
   border-radius: 12px;
@@ -3540,8 +3539,7 @@ nextjs-portal {
 .ticket-body span,
 .profile-card span,
 .profile-stamp-card p,
-.auth-copy p,
-.auth-loyalty-preview span {
+.auth-copy p {
   color: #666666;
   font-size: 13px;
   line-height: 1.55;
@@ -4144,8 +4142,7 @@ nextjs-portal {
 .auth-brand {
   display: grid;
   justify-items: center;
-  gap: 16px;
-  padding: 18px 20px 20px;
+  padding: 18px 20px 12px;
 }
 
 .auth-brand img:first-child {
@@ -4156,15 +4153,8 @@ nextjs-portal {
   box-shadow: 0 16px 34px rgba(0, 0, 0, 0.12);
 }
 
-.auth-brand img:last-child {
-  width: 206px;
-  height: 62px;
-  object-fit: contain;
-}
-
 .auth-copy {
   display: grid;
-  gap: 10px;
   text-align: center;
 }
 
@@ -4241,23 +4231,8 @@ nextjs-portal {
   outline: 0;
 }
 
-.auth-loyalty-preview {
-  min-height: 76px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 36px;
-  align-items: center;
-  gap: 14px;
-  margin-top: 18px;
-  padding: 14px;
-}
-
 .auth-message {
   margin-top: 12px;
-}
-
-.auth-loyalty-preview strong {
-  display: block;
-  margin-bottom: 4px;
 }
 
 @media (max-width: 520px) {

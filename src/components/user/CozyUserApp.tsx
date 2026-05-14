@@ -287,12 +287,10 @@ export function CozyUserApp() {
         <section className="auth-phone" aria-label="Cozy Coffee бүртгэл">
           <div className="auth-brand">
             <img src="/cozy-user-icon.png" alt="Cozy Coffee" />
-            <img src="/cozy-coffee-logo.jpg" alt="Cozy Coffee logo" />
           </div>
 
           <div className="auth-copy">
             <h1>{isRegister ? "Cozy Coffee-д бүртгүүлэх" : "Cozy Coffee-д нэвтрэх"}</h1>
-            <p>9 кофе авбал 1 үнэгүй кофе авах loyalty картаа утасны дугаараар нээгээрэй.</p>
           </div>
 
           <div className="auth-switch" role="tablist" aria-label="Бүртгэл болон нэвтрэх">
@@ -348,14 +346,6 @@ export function CozyUserApp() {
           </form>
 
           {message ? <p className="user-message auth-message">{message}</p> : null}
-
-          <div className="auth-loyalty-preview">
-            <div>
-              <strong>9 кофе = 1 үнэгүй кофе</strong>
-              <span>Бүртгүүлмэгц таны тамганы карт автоматаар үүснэ.</span>
-            </div>
-            <Gift size={22} aria-hidden="true" />
-          </div>
         </section>
       </main>
     );
