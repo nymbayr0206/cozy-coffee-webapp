@@ -88,6 +88,14 @@ async function userLoyaltyRequest<T>(path: string, init?: RequestInit) {
   return payload as T;
 }
 
+function friendlyUserError(error: unknown, fallback: string) {
+  if (!(error instanceof Error)) return fallback;
+  const technicalWords = ["odoo", "loyalty", "wallet", "cozy.loyalty", "module", "server", "connection", "rpc"];
+  const lower = error.message.toLowerCase();
+  if (technicalWords.some((word) => lower.includes(word))) return fallback;
+  return error.message;
+}
+
 function profileFromWallet(wallet: CozyUserWallet): CozyUserProfile {
   return {
     member_id: wallet.member.id,
@@ -151,7 +159,7 @@ export function CozyUserApp() {
             window.localStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
           })
           .catch((error: unknown) => {
-            setMessage(error instanceof Error ? error.message : "Odoo loyalty wallet уншиж чадсангүй.");
+            setMessage(friendlyUserError(error, "Картын мэдээлэл түр уншигдсангүй. Дахин оролдоно уу."));
           });
       }
     }
@@ -187,11 +195,11 @@ export function CozyUserApp() {
       setPhone(nextProfile.phone);
       setStamps(wallet.member.stamp_count);
       setCoupons(wallet.coupons ?? []);
-      setMessage(authMode === "register" ? "Бүртгэл амжилттай. Таны loyalty карт Odoo дээр үүслээ." : "Тавтай морил.");
+      setMessage(authMode === "register" ? "Бүртгэл амжилттай. Таны урамшууллын карт бэлэн боллоо." : "Тавтай морил.");
       setPassword("");
       setConfirmPassword("");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Odoo loyalty нэвтрэлт амжилтгүй боллоо.");
+      setMessage(friendlyUserError(error, "Нэвтрэхэд алдаа гарлаа. Утасны дугаар болон нууц үгээ шалгана уу."));
     } finally {
       setAuthLoading(false);
     }
@@ -203,10 +211,10 @@ export function CozyUserApp() {
       .then((wallet) => {
         setStamps(wallet.member.stamp_count);
         setCoupons(wallet.coupons ?? []);
-        setMessage("Odoo wallet дахин уншигдлаа.");
+        setMessage("Картын мэдээлэл шинэчлэгдлээ.");
       })
       .catch((error: unknown) => {
-        setMessage(error instanceof Error ? error.message : "Odoo wallet дахин уншиж чадсангүй.");
+        setMessage(friendlyUserError(error, "Картын мэдээлэл шинэчилж чадсангүй. Дахин оролдоно уу."));
       });
   }
 
@@ -229,7 +237,7 @@ export function CozyUserApp() {
     }
 
     if (action === "orders") {
-      setMessage("Захиалгын түүх удахгүй Odoo захиалгын мэдээлэлтэй холбогдоно.");
+      setMessage("Захиалгын түүх удахгүй нэмэгдэнэ.");
       return;
     }
 
@@ -339,7 +347,7 @@ export function CozyUserApp() {
             ) : null}
 
             <button className="user-primary-button" type="submit" disabled={authLoading}>
-              {authLoading ? "Odoo холбогдож байна" : isRegister ? "Бүртгүүлэх" : "Нэвтрэх"}
+              {authLoading ? "Мэдээлэл шалгаж байна" : isRegister ? "Бүртгүүлэх" : "Нэвтрэх"}
             </button>
           </form>
 
@@ -397,7 +405,7 @@ export function CozyUserApp() {
               <button type="button">Бүгд ({coupons.length})</button>
             </div>
             {activeCoupons.length === 0 ? (
-              <div className="user-message">Одоогоор идэвхтэй купон алга. 9 тамга цуглуулахад Odoo дээр купон автоматаар үүснэ.</div>
+              <div className="user-message">Одоогоор идэвхтэй купон алга. 9 тамга цуглуулахад купон автоматаар нэмэгдэнэ.</div>
             ) : null}
             {activeCoupons.map((coupon) => (
               <article className="ticket-card featured" key={coupon.id}>
@@ -447,7 +455,7 @@ export function CozyUserApp() {
               <p>{remaining === 0 ? "Та 1 үнэгүй кофе авахад бэлэн байна." : `${remaining} тамга дутуу байна. Та 1 үнэгүй кофе авахад ойрхон байна!`}</p>
               <button className="user-secondary-button" type="button" onClick={handleRefreshWallet}>
                 <RotateCcw size={16} aria-hidden="true" />
-                Odoo wallet сэргээх
+                Картаа шинэчлэх
               </button>
             </article>
 
