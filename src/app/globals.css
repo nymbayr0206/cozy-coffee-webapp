@@ -4014,6 +4014,43 @@ nextjs-portal {
   border-radius: 14px;
 }
 
+.push-consent-banner {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 94px;
+  z-index: 12;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 12px 14px;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid #e2e2e4;
+  border-radius: 18px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(14px);
+}
+
+.push-consent-banner strong,
+.push-consent-banner span {
+  display: block;
+  letter-spacing: 0;
+}
+
+.push-consent-banner strong {
+  color: #111111;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.push-consent-banner span {
+  margin-top: 3px;
+  color: #666666;
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
 .coupon-screen,
 .scan-screen,
 .profile-screen {

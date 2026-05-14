@@ -1058,6 +1058,18 @@ export function CozyUserApp() {
           </div>
         ) : null}
 
+        {!phonePushActive ? (
+          <div className="push-consent-banner" role="region" aria-label="Утасны мэдэгдэл асаах">
+            <div>
+              <strong>Мэдэгдэл асаах</strong>
+              <span>Купон, урамшуулал, тамганы сануулга шууд ирнэ.</span>
+            </div>
+            <button className="user-primary-button compact" type="button" onClick={() => void enablePhonePush()} disabled={pushUpdating}>
+              {pushUpdating ? "Түр хүлээнэ үү" : "Асаах"}
+            </button>
+          </div>
+        ) : null}
+
         <nav className="user-bottom-nav" aria-label="User app menu">
           {[
             ["home", "Нүүр", Home],
