@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_cozy_loyalty_member_user,cozy.loyalty.member user,model_cozy_loyalty_member,base.group_user,1,1,1,0
+access_cozy_loyalty_coupon_user,cozy.loyalty.coupon user,model_cozy_loyalty_coupon,base.group_user,1,1,1,0

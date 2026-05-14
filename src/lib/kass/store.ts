@@ -329,6 +329,7 @@ function calculateReport(session: KassSessionRecord, orders: KassOrderRecord[]) 
   const qpay_total = activeOrders.reduce((sum, order) => sum + paymentAmount(order, "qpay"), 0);
   const bank_total = activeOrders.reduce((sum, order) => sum + paymentAmount(order, "bank"), 0);
   const credit_total = activeOrders.reduce((sum, order) => sum + paymentAmount(order, "credit"), 0);
+  const coupon_total = activeOrders.reduce((sum, order) => sum + paymentAmount(order, "coupon"), 0);
   const total_sales = cash_total + card_total + qpay_total + bank_total + credit_total;
   const expected_cash = session.opening_cash + cash_total;
 
@@ -341,6 +342,7 @@ function calculateReport(session: KassSessionRecord, orders: KassOrderRecord[]) 
     qpay_total,
     bank_total,
     credit_total,
+    coupon_total,
     orders_count: activeOrders.length,
     returned_orders_count: orders.length - activeOrders.length,
     expected_cash,

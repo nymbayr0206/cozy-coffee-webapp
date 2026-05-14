@@ -5,6 +5,8 @@ import {
   createOdooSaleOrder,
   linkOdooQpayTransactionToSaleOrder,
   previewOdooRecipeStockConsumption,
+  redeemOdooLoyaltyCoupon,
+  validateOdooLoyaltyCoupon,
 } from "@/lib/kass/odoo";
 import { addOrder, assertSessionOpen, nextReceiptNumber } from "@/lib/kass/store";
 import {
@@ -26,6 +28,8 @@ interface CreateOrderBody {
   partner_name?: unknown;
   lines?: unknown;
   qpay_transaction_id?: unknown;
+  coupon_qr_token?: unknown;
+  coupon_pin?: unknown;
 }
 
 export async function POST(request: Request) {
@@ -41,6 +45,7 @@ export async function POST(request: Request) {
     const paymentMethod = payments.length === 1 ? payments[0].method : "mixed";
     const qpayPayment = payments.find((payment) => payment.method === "qpay");
     const creditPayment = payments.find((payment) => payment.method === "credit");
+    const couponPayment = payments.find((payment) => payment.method === "coupon");
     const partnerId =
       body.partner_id === undefined || body.partner_id === null || body.partner_id === ""
         ? null
@@ -50,6 +55,8 @@ export async function POST(request: Request) {
       qpayPayment && body.qpay_transaction_id !== undefined && body.qpay_transaction_id !== null
         ? Math.trunc(parseNumber(body.qpay_transaction_id, "qpay_transaction_id", { min: 1 }))
         : null;
+    const couponQrToken = couponPayment ? requireString(body.coupon_qr_token, "coupon_qr_token") : null;
+    const couponPin = couponPayment ? requireString(body.coupon_pin, "coupon_pin") : null;
 
     if (creditPayment && !partnerId) {
       throw new KassServerError("validation_error", "Зээлээр бүртгэх харилцагч сонгоно уу.", 400);
@@ -57,11 +64,23 @@ export async function POST(request: Request) {
 
     assertSessionOpen(sessionId);
 
+    if (couponPayment && couponQrToken && couponPin) {
+      await validateOdooLoyaltyCoupon(couponQrToken, couponPin);
+    }
+
     const stockConsumptions = await previewOdooRecipeStockConsumption(lines);
     await consumeOdooRecipeStock(lines);
     const odooOrderId = await createOdooSaleOrder(lines, paymentMethod, payments, partnerId);
     if (qpayTransactionId && typeof odooOrderId === "number") {
       await linkOdooQpayTransactionToSaleOrder(qpayTransactionId, odooOrderId);
+    }
+    if (couponPayment && couponQrToken && couponPin) {
+      await redeemOdooLoyaltyCoupon({
+        qr_token: couponQrToken,
+        pin: couponPin,
+        session_id: sessionId,
+        order_ref: odooOrderId,
+      });
     }
 
     const order = addOrder({
