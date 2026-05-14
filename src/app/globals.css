@@ -4222,6 +4222,10 @@ nextjs-portal {
   border-radius: 13px;
 }
 
+.user-input.password-input {
+  grid-template-columns: 22px minmax(0, 1fr) 34px;
+}
+
 .user-input input {
   min-width: 0;
   min-height: 44px;
@@ -4229,6 +4233,22 @@ nextjs-portal {
   background: transparent;
   border: 0;
   outline: 0;
+}
+
+.password-eye-button {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  color: #555555;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+}
+
+.password-eye-button:hover {
+  color: #111111;
+  background: #f3f3f3;
 }
 
 .auth-message {

@@ -5,6 +5,8 @@ import {
   Check,
   ChevronRight,
   Coffee,
+  Eye,
+  EyeOff,
   Gift,
   Heart,
   Home,
@@ -119,6 +121,9 @@ export function CozyUserApp() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [stamps, setStamps] = useState(INITIAL_STAMPS);
   const [coupons, setCoupons] = useState<CozyUserCoupon[]>([]);
   const [authLoading, setAuthLoading] = useState(false);
@@ -160,8 +165,14 @@ export function CozyUserApp() {
 
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setAuthLoading(true);
     setMessage("");
+
+    if (authMode === "register" && password !== confirmPassword) {
+      setMessage("Нууц үг давталт таарахгүй байна.");
+      return;
+    }
+
+    setAuthLoading(true);
 
     try {
       const wallet = await userLoyaltyRequest<{ ok: boolean } & CozyUserWallet>("/auth", {
@@ -185,6 +196,7 @@ export function CozyUserApp() {
       setMemberQr(null);
       setMessage(authMode === "register" ? "Бүртгэл амжилттай. Таны loyalty карт Odoo дээр үүслээ." : "Тавтай морил.");
       setPassword("");
+      setConfirmPassword("");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Odoo loyalty нэвтрэлт амжилтгүй боллоо.");
     } finally {
@@ -328,17 +340,49 @@ export function CozyUserApp() {
 
             <label>
               <span>Нууц үг</span>
-              <div className="user-input">
+              <div className="user-input password-input">
                 <LockKeyhole size={18} aria-hidden="true" />
                 <input
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   placeholder="••••••••"
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   autoComplete={isRegister ? "new-password" : "current-password"}
                 />
+                <button
+                  className="password-eye-button"
+                  type="button"
+                  onClick={() => setShowPassword((current) => !current)}
+                  aria-label={showPassword ? "Нууц үг нуух" : "Нууц үг харах"}
+                >
+                  {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+                </button>
               </div>
             </label>
+
+            {isRegister ? (
+              <label>
+                <span>Нууц үг давтах</span>
+                <div className="user-input password-input">
+                  <LockKeyhole size={18} aria-hidden="true" />
+                  <input
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    placeholder="••••••••"
+                    type={showConfirmPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                  />
+                  <button
+                    className="password-eye-button"
+                    type="button"
+                    onClick={() => setShowConfirmPassword((current) => !current)}
+                    aria-label={showConfirmPassword ? "Давтсан нууц үг нуух" : "Давтсан нууц үг харах"}
+                  >
+                    {showConfirmPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+                  </button>
+                </div>
+              </label>
+            ) : null}
 
             <button className="user-primary-button" type="submit" disabled={authLoading}>
               {authLoading ? "Odoo холбогдож байна" : isRegister ? "Бүртгүүлэх" : "Нэвтрэх"}
