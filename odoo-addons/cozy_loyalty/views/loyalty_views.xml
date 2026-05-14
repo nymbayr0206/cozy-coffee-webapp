@@ -18,6 +18,18 @@
         <field name="view_mode">list,form</field>
     </record>
 
+    <record id="action_cozy_notification_campaigns" model="ir.actions.act_window">
+        <field name="name">Notification campaigns</field>
+        <field name="res_model">cozy.notification.campaign</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_cozy_notification_messages" model="ir.actions.act_window">
+        <field name="name">Notification inbox</field>
+        <field name="res_model">cozy.notification.message</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
     <record id="view_cozy_loyalty_member_list" model="ir.ui.view">
         <field name="name">cozy.loyalty.member.list</field>
         <field name="model">cozy.loyalty.member</field>
@@ -26,6 +38,8 @@
                 <field name="display_name"/>
                 <field name="phone"/>
                 <field name="stamp_count"/>
+                <field name="marketing_opt_in"/>
+                <field name="last_purchase_at"/>
                 <field name="active"/>
             </list>
         </field>
@@ -41,11 +55,16 @@
                         <field name="partner_id"/>
                         <field name="phone"/>
                         <field name="stamp_count"/>
+                        <field name="marketing_opt_in"/>
+                        <field name="last_purchase_at"/>
                         <field name="active"/>
                     </group>
                     <notebook>
                         <page string="Coupons">
                             <field name="coupon_ids" readonly="1"/>
+                        </page>
+                        <page string="Notifications">
+                            <field name="notification_message_ids" readonly="1"/>
                         </page>
                     </notebook>
                 </sheet>
@@ -128,8 +147,101 @@
         </field>
     </record>
 
+    <record id="view_cozy_notification_campaign_list" model="ir.ui.view">
+        <field name="name">cozy.notification.campaign.list</field>
+        <field name="model">cozy.notification.campaign</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="target_segment"/>
+                <field name="scheduled_at"/>
+                <field name="campaign_type"/>
+                <field name="status"/>
+                <field name="message_count"/>
+                <field name="sent_at"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cozy_notification_campaign_form" model="ir.ui.view">
+        <field name="name">cozy.notification.campaign.form</field>
+        <field name="model">cozy.notification.campaign</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_send" string="Send now" type="object" class="oe_highlight"/>
+                </header>
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="status"/>
+                        <field name="campaign_type"/>
+                        <field name="target_segment"/>
+                        <field name="scheduled_at"/>
+                    </group>
+                    <group string="Message">
+                        <field name="title"/>
+                        <field name="message"/>
+                        <field name="image" filename="image_filename"/>
+                        <field name="image_filename" invisible="1"/>
+                    </group>
+                    <group string="Delivery">
+                        <field name="message_count" readonly="1"/>
+                        <field name="sent_at" readonly="1"/>
+                        <field name="failed_reason" readonly="1"/>
+                    </group>
+                    <notebook>
+                        <page string="Messages">
+                            <field name="message_ids" readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_cozy_notification_message_list" model="ir.ui.view">
+        <field name="name">cozy.notification.message.list</field>
+        <field name="model">cozy.notification.message</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="send_time"/>
+                <field name="member_id"/>
+                <field name="title"/>
+                <field name="campaign_id"/>
+                <field name="status"/>
+                <field name="read_at"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cozy_notification_message_form" model="ir.ui.view">
+        <field name="name">cozy.notification.message.form</field>
+        <field name="model">cozy.notification.message</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="campaign_id"/>
+                        <field name="member_id"/>
+                        <field name="status"/>
+                        <field name="send_time"/>
+                        <field name="read_at"/>
+                    </group>
+                    <group string="Message">
+                        <field name="title"/>
+                        <field name="message"/>
+                        <field name="image"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
     <menuitem id="menu_cozy_loyalty_root" name="Cozy Loyalty" sequence="60"/>
     <menuitem id="menu_cozy_loyalty_members" name="Members" parent="menu_cozy_loyalty_root" action="action_cozy_loyalty_members" sequence="10"/>
     <menuitem id="menu_cozy_loyalty_coupons" name="Coupons" parent="menu_cozy_loyalty_root" action="action_cozy_loyalty_coupons" sequence="20"/>
     <menuitem id="menu_cozy_loyalty_stamp_rules" name="Stamp rules" parent="menu_cozy_loyalty_root" action="action_cozy_loyalty_stamp_rules" sequence="30"/>
+    <menuitem id="menu_cozy_notification_campaigns" name="Notifications" parent="menu_cozy_loyalty_root" action="action_cozy_notification_campaigns" sequence="40"/>
+    <menuitem id="menu_cozy_notification_messages" name="Notification inbox" parent="menu_cozy_loyalty_root" action="action_cozy_notification_messages" sequence="50"/>
 </odoo>

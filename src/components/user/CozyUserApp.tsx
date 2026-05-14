@@ -3,6 +3,7 @@
 import {
   Bell,
   Camera,
+  CheckCheck,
   ChevronRight,
   Coffee,
   Eye,
@@ -19,6 +20,7 @@ import {
   Ticket,
   User,
   UserRound,
+  X,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
@@ -30,6 +32,7 @@ interface CozyUserProfile {
   partner_id?: number;
   name: string;
   phone: string;
+  marketing_opt_in?: boolean;
 }
 
 interface CozyUserCoupon {
@@ -47,8 +50,27 @@ interface CozyUserWallet {
     name: string;
     phone: string;
     stamp_count: number;
+    marketing_opt_in?: boolean;
+    last_purchase_at?: string | null;
   };
   coupons: CozyUserCoupon[];
+}
+
+interface CozyNotificationMessage {
+  id: number;
+  campaign_id?: number | null;
+  title: string;
+  message: string;
+  image?: string | null;
+  send_time?: string | null;
+  read_at?: string | null;
+  status: string;
+}
+
+interface CozyNotificationInbox {
+  unread_count: number;
+  marketing_opt_in?: boolean;
+  messages: CozyNotificationMessage[];
 }
 
 const PROFILE_KEY = "cozy.user.profile";
@@ -89,9 +111,30 @@ async function userLoyaltyRequest<T>(path: string, init?: RequestInit) {
   return payload as T;
 }
 
+async function cozyNotificationRequest<T>(path: string, init?: RequestInit) {
+  const response = await fetch(`/api/cozy/notifications${path}`, {
+    ...init,
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...init?.headers,
+    },
+  });
+  const payload = (await response.json().catch(() => null)) as { error?: { message?: string; code?: string } } | null;
+
+  if (!response.ok) {
+    const message = payload?.error?.message ?? "Notification request failed.";
+    const code = payload?.error?.code ? ` (${payload.error.code})` : "";
+    throw new Error(`${message}${code}`);
+  }
+
+  return payload as T;
+}
+
 function friendlyUserError(error: unknown, fallback: string) {
   if (!(error instanceof Error)) return fallback;
-  const technicalWords = ["odoo", "loyalty", "wallet", "cozy.loyalty", "module", "server", "connection", "rpc"];
+  const technicalWords = ["odoo", "loyalty", "wallet", "notification", "cozy.loyalty", "module", "server", "connection", "rpc"];
   const lower = error.message.toLowerCase();
   if (technicalWords.some((word) => lower.includes(word))) return fallback;
   return error.message;
@@ -103,7 +146,21 @@ function profileFromWallet(wallet: CozyUserWallet): CozyUserProfile {
     partner_id: wallet.member.partner_id,
     name: wallet.member.name,
     phone: wallet.member.phone,
+    marketing_opt_in: wallet.member.marketing_opt_in ?? true,
   };
+}
+
+function formatNotificationTime(value?: string | null) {
+  if (!value) return "";
+  const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("mn-MN", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function StampRow({ count, compact = false }: { count: number; compact?: boolean }) {
@@ -142,6 +199,12 @@ export function CozyUserApp() {
   const [scanCode, setScanCode] = useState("");
   const [manualScanCode, setManualScanCode] = useState("");
   const [scanNotice, setScanNotice] = useState("");
+  const [notifications, setNotifications] = useState<CozyNotificationMessage[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const [notificationLoading, setNotificationLoading] = useState(false);
+  const [notificationNotice, setNotificationNotice] = useState("");
+  const [marketingUpdating, setMarketingUpdating] = useState(false);
 
   const remaining = Math.max(STAMP_TARGET - stamps, 0);
   const progress = useMemo(() => (stamps / STAMP_TARGET) * 100, [stamps]);
@@ -178,6 +241,19 @@ export function CozyUserApp() {
       stopCashierScan();
     };
   }, []);
+
+  useEffect(() => {
+    if (!profile?.member_id) return;
+
+    void refreshNotifications(profile.member_id, { quiet: true });
+    const intervalId = window.setInterval(() => {
+      void refreshNotifications(profile.member_id, { quiet: true });
+    }, 60000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [profile?.member_id]);
 
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -222,8 +298,11 @@ export function CozyUserApp() {
     if (!profile?.member_id) return;
     void userLoyaltyRequest<{ ok: boolean } & CozyUserWallet>(`/wallet?member_id=${encodeURIComponent(profile.member_id)}`)
       .then((wallet) => {
+        const nextProfile = profileFromWallet(wallet);
+        setProfile(nextProfile);
         setStamps(wallet.member.stamp_count);
         setCoupons(wallet.coupons ?? []);
+        window.localStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
         setMessage("Картын мэдээлэл шинэчлэгдлээ.");
       })
       .catch((error: unknown) => {
@@ -235,6 +314,10 @@ export function CozyUserApp() {
     setProfile(null);
     setAuthMode("login");
     setMessage("");
+    setNotifications([]);
+    setUnreadCount(0);
+    setNotificationOpen(false);
+    window.localStorage.removeItem(PROFILE_KEY);
   }
 
   function handleProfileAction(action: "coupons" | "orders" | "saved" | "info" | "settings") {
@@ -343,6 +426,85 @@ export function CozyUserApp() {
     }
     setScanCode(code);
     setScanNotice("Код бүртгэгдлээ. Касс дээр баталгаажуулна уу.");
+  }
+
+  function applyNotificationInbox(inbox: CozyNotificationInbox) {
+    setNotifications(inbox.messages ?? []);
+    setUnreadCount(inbox.unread_count ?? 0);
+    if (profile && inbox.marketing_opt_in !== undefined) {
+      const nextProfile = { ...profile, marketing_opt_in: inbox.marketing_opt_in };
+      setProfile(nextProfile);
+      window.localStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+    }
+  }
+
+  async function refreshNotifications(memberId = profile?.member_id, options?: { quiet?: boolean }) {
+    if (!memberId) return;
+    if (!options?.quiet) {
+      setNotificationLoading(true);
+      setNotificationNotice("");
+    }
+
+    try {
+      const inbox = await cozyNotificationRequest<{ ok: boolean } & CozyNotificationInbox>(`?member_id=${encodeURIComponent(memberId)}&limit=40`);
+      applyNotificationInbox(inbox);
+    } catch (error) {
+      if (!options?.quiet) {
+        setNotificationNotice(friendlyUserError(error, "Мэдэгдэл түр уншигдсангүй. Дахин оролдоно уу."));
+      }
+    } finally {
+      if (!options?.quiet) setNotificationLoading(false);
+    }
+  }
+
+  async function markNotificationsRead(messageIds?: number[]) {
+    if (!profile?.member_id) return;
+    setNotificationLoading(true);
+    setNotificationNotice("");
+
+    try {
+      const inbox = await cozyNotificationRequest<{ ok: boolean } & CozyNotificationInbox>("/read", {
+        method: "POST",
+        body: JSON.stringify({
+          member_id: profile.member_id,
+          all: !messageIds,
+          message_ids: messageIds ?? [],
+        }),
+      });
+      applyNotificationInbox(inbox);
+    } catch (error) {
+      setNotificationNotice(friendlyUserError(error, "Мэдэгдэл шинэчилж чадсангүй."));
+    } finally {
+      setNotificationLoading(false);
+    }
+  }
+
+  async function toggleMarketingOptIn() {
+    if (!profile?.member_id) return;
+    const nextValue = !(profile.marketing_opt_in ?? true);
+    setMarketingUpdating(true);
+    setMessage("");
+
+    try {
+      const wallet = await cozyNotificationRequest<{ ok: boolean } & CozyUserWallet>("/settings", {
+        method: "POST",
+        body: JSON.stringify({
+          member_id: profile.member_id,
+          marketing_opt_in: nextValue,
+        }),
+      });
+      const nextProfile = profileFromWallet(wallet);
+      setProfile(nextProfile);
+      setStamps(wallet.member.stamp_count);
+      setCoupons(wallet.coupons ?? []);
+      window.localStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+      setMessage(nextValue ? "Маркетинг мэдэгдэл идэвхжлээ." : "Маркетинг мэдэгдэл унтарлаа.");
+      void refreshNotifications(profile.member_id, { quiet: true });
+    } catch (error) {
+      setMessage(friendlyUserError(error, "Тохиргоо хадгалж чадсангүй. Дахин оролдоно уу."));
+    } finally {
+      setMarketingUpdating(false);
+    }
   }
 
   if (!hydrated) {
@@ -459,9 +621,23 @@ export function CozyUserApp() {
         {activeTab === "home" ? (
           <>
             <header className="user-home-header">
-              <img src="/cozy-coffee-logo.jpg" alt="Cozy Coffee" />
-              <button className="round-icon-button" type="button" aria-label="Мэдэгдэл">
+              <div className="home-identity">
+                <img src="/cozy-coffee-logo.jpg" alt="Cozy Coffee" />
+                <p>
+                  Сайн байна уу, <strong>{profile.name}</strong>
+                </p>
+              </div>
+              <button
+                className="round-icon-button notification-button"
+                type="button"
+                aria-label="Мэдэгдэл"
+                onClick={() => {
+                  setNotificationOpen(true);
+                  void refreshNotifications(profile.member_id, { quiet: false });
+                }}
+              >
                 <Bell size={19} aria-hidden="true" />
+                {unreadCount > 0 ? <span className="notification-badge">{unreadCount > 9 ? "9+" : unreadCount}</span> : null}
               </button>
             </header>
 
@@ -578,6 +754,22 @@ export function CozyUserApp() {
               <ChevronRight size={18} aria-hidden="true" />
             </button>
 
+            <article className="profile-setting-card">
+              <div>
+                <strong>Маркетинг мэдэгдэл авах</strong>
+                <span>Урамшуулал, купон болон тамганы сануулга.</span>
+              </div>
+              <button
+                className={(profile.marketing_opt_in ?? true) ? "user-toggle active" : "user-toggle"}
+                type="button"
+                aria-pressed={profile.marketing_opt_in ?? true}
+                onClick={() => void toggleMarketingOptIn()}
+                disabled={marketingUpdating}
+              >
+                <span />
+              </button>
+            </article>
+
             <article className="profile-stamp-card">
               <div>
                 <h2>Таны тамга</h2>
@@ -616,6 +808,74 @@ export function CozyUserApp() {
             </div>
             {message ? <p className="user-message profile-action-notice">{message}</p> : null}
           </section>
+        ) : null}
+
+        {notificationOpen ? (
+          <div className="notification-sheet" role="dialog" aria-modal="true" aria-labelledby="notification-title">
+            <div className="notification-panel">
+              <header className="notification-header">
+                <div>
+                  <h2 id="notification-title">Мэдэгдэл</h2>
+                  <span>{unreadCount > 0 ? `${unreadCount} шинэ мэдэгдэл` : "Шинэ мэдэгдэл алга"}</span>
+                </div>
+                <button className="round-icon-button" type="button" aria-label="Хаах" onClick={() => setNotificationOpen(false)}>
+                  <X size={18} aria-hidden="true" />
+                </button>
+              </header>
+
+              <div className="notification-actions">
+                <button className="user-secondary-button compact" type="button" onClick={() => void refreshNotifications(undefined, { quiet: false })} disabled={notificationLoading}>
+                  <RotateCcw size={15} aria-hidden="true" />
+                  Шинэчлэх
+                </button>
+                <button
+                  className="user-secondary-button compact"
+                  type="button"
+                  onClick={() => void markNotificationsRead()}
+                  disabled={notificationLoading || unreadCount === 0}
+                >
+                  <CheckCheck size={15} aria-hidden="true" />
+                  Бүгдийг уншсан
+                </button>
+              </div>
+
+              <div className="notification-list">
+                {notifications.length === 0 ? (
+                  <div className="notification-empty">
+                    <Bell size={28} aria-hidden="true" />
+                    <strong>Одоогоор мэдэгдэл алга</strong>
+                    <span>Урамшуулал болон купоны сануулга энд харагдана.</span>
+                  </div>
+                ) : null}
+
+                {notifications.map((item) => {
+                  const unread = item.status === "sent" && !item.read_at;
+                  return (
+                    <article className={unread ? "notification-item unread" : "notification-item"} key={item.id}>
+                      {item.image ? <img src={`data:image/png;base64,${item.image}`} alt="" /> : null}
+                      <div>
+                        <div className="notification-item-top">
+                          <strong>{item.title}</strong>
+                          {unread ? <span>Шинэ</span> : null}
+                        </div>
+                        <p>{item.message}</p>
+                        <footer>
+                          <time>{formatNotificationTime(item.send_time)}</time>
+                          {unread ? (
+                            <button type="button" onClick={() => void markNotificationsRead([item.id])} disabled={notificationLoading}>
+                              Уншсан
+                            </button>
+                          ) : null}
+                        </footer>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+
+              {notificationNotice ? <p className="user-message notification-notice">{notificationNotice}</p> : null}
+            </div>
+          </div>
         ) : null}
 
         <nav className="user-bottom-nav" aria-label="User app menu">

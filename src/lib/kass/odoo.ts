@@ -2407,7 +2407,7 @@ function formatPaymentNote(paymentMethod: string, payments: PaymentPart[]) {
 }
 
 async function callCozyLoyalty<T>(
-  model: "cozy.loyalty.member" | "cozy.loyalty.coupon",
+  model: "cozy.loyalty.member" | "cozy.loyalty.coupon" | "cozy.notification.message",
   method: string,
   args: unknown[] = [],
 ) {
@@ -2431,6 +2431,8 @@ export interface CozyLoyaltyWallet {
     name: string;
     phone: string;
     stamp_count: number;
+    marketing_opt_in?: boolean;
+    last_purchase_at?: string | null;
   };
   coupons: Array<{
     id: number;
@@ -2470,6 +2472,38 @@ export function loginOdooLoyaltyMember(input: { phone: string; pin: string }) {
 
 export function fetchOdooLoyaltyWallet(memberId: number) {
   return callCozyLoyalty<CozyLoyaltyWallet>("cozy.loyalty.member", "api_wallet", [memberId]);
+}
+
+export interface CozyNotificationMessage {
+  id: number;
+  campaign_id?: number | null;
+  title: string;
+  message: string;
+  image?: string | null;
+  send_time?: string | null;
+  read_at?: string | null;
+  status: "sent" | "read" | "failed" | string;
+}
+
+export interface CozyNotificationInbox {
+  unread_count: number;
+  marketing_opt_in?: boolean;
+  messages: CozyNotificationMessage[];
+}
+
+export function fetchOdooNotificationInbox(memberId: number, limit = 30) {
+  return callCozyLoyalty<CozyNotificationInbox>("cozy.notification.message", "api_inbox", [memberId, limit]);
+}
+
+export function markOdooNotificationsRead(input: { member_id: number; message_ids?: number[]; all?: boolean }) {
+  return callCozyLoyalty<CozyNotificationInbox>("cozy.notification.message", "api_mark_read", [input]);
+}
+
+export function updateOdooNotificationSettings(input: { member_id: number; marketing_opt_in: boolean }) {
+  return callCozyLoyalty<CozyLoyaltyWallet>("cozy.loyalty.member", "api_update_notification_settings", [
+    input.member_id,
+    { marketing_opt_in: input.marketing_opt_in },
+  ]);
 }
 
 export function recordOdooLoyaltyPurchase(input: {

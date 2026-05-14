@@ -2,7 +2,7 @@ import base64
 import hashlib
 import hmac
 import secrets
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
@@ -19,8 +19,11 @@ class CozyLoyaltyMember(models.Model):
     pin_hash = fields.Char()
     qr_secret = fields.Char()
     stamp_count = fields.Integer(default=0)
+    marketing_opt_in = fields.Boolean(default=True)
+    last_purchase_at = fields.Datetime()
     active = fields.Boolean(default=True)
     coupon_ids = fields.One2many("cozy.loyalty.coupon", "member_id")
+    notification_message_ids = fields.One2many("cozy.notification.message", "member_id")
 
     _sql_constraints = [
         ("phone_unique", "unique(phone)", "This phone number already has a loyalty member."),
@@ -71,6 +74,8 @@ class CozyLoyaltyMember(models.Model):
             "name": self.partner_id.display_name,
             "phone": self.phone,
             "stamp_count": self.stamp_count,
+            "marketing_opt_in": self.marketing_opt_in,
+            "last_purchase_at": fields.Datetime.to_string(self.last_purchase_at) if self.last_purchase_at else None,
         }
 
     def _wallet_payload(self):
@@ -235,6 +240,7 @@ class CozyLoyaltyMember(models.Model):
         if quantity <= 0:
             return member._wallet_payload()
 
+        member.last_purchase_at = fields.Datetime.now()
         member.stamp_count += quantity
         while member.stamp_count >= 9:
             member.stamp_count -= 9
@@ -275,6 +281,15 @@ class CozyLoyaltyMember(models.Model):
             "coupon": member._coupon_payload(coupon),
             "qr_token": coupon.qr_token(),
         }
+
+    @api.model
+    def api_update_notification_settings(self, member_id, values):
+        member = self.browse(int(member_id)).exists()
+        if not member or not member.active:
+            raise ValidationError("Loyalty member not found.")
+        if "marketing_opt_in" in (values or {}):
+            member.marketing_opt_in = bool(values.get("marketing_opt_in"))
+        return member._wallet_payload()
 
 
 class CozyLoyaltyStampRule(models.Model):
@@ -410,3 +425,223 @@ class CozyLoyaltyCoupon(models.Model):
             "reward_product_name": coupon.reward_product_id.display_name,
             "state": coupon.state,
         }
+
+
+class CozyNotificationCampaign(models.Model):
+    _name = "cozy.notification.campaign"
+    _description = "Cozy Coffee Notification Campaign"
+    _order = "scheduled_at desc, id desc"
+
+    name = fields.Char(required=True)
+    title = fields.Char(required=True)
+    message = fields.Text(required=True)
+    image = fields.Binary(attachment=True)
+    image_filename = fields.Char()
+    scheduled_at = fields.Datetime(required=True, default=fields.Datetime.now)
+    target_segment = fields.Selection(
+        [
+            ("all_registered", "All registered users"),
+            ("available_coupon", "Users with available coupon"),
+            ("close_reward", "Users close to free coffee"),
+            ("inactive_7", "Inactive for 7 days"),
+            ("inactive_14", "Inactive for 14 days"),
+            ("inactive_30", "Inactive for 30 days"),
+        ],
+        required=True,
+        default="all_registered",
+    )
+    campaign_type = fields.Selection(
+        [
+            ("marketing", "Marketing"),
+            ("system", "System"),
+        ],
+        required=True,
+        default="marketing",
+    )
+    status = fields.Selection(
+        [
+            ("draft", "Draft"),
+            ("scheduled", "Scheduled"),
+            ("sent", "Sent"),
+            ("failed", "Failed"),
+        ],
+        required=True,
+        default="draft",
+        index=True,
+    )
+    sent_at = fields.Datetime()
+    failed_reason = fields.Text()
+    message_ids = fields.One2many("cozy.notification.message", "campaign_id")
+    message_count = fields.Integer(compute="_compute_message_count")
+
+    def _compute_message_count(self):
+        grouped = self.env["cozy.notification.message"].read_group(
+            [("campaign_id", "in", self.ids)],
+            ["campaign_id"],
+            ["campaign_id"],
+        )
+        counts = {row["campaign_id"][0]: row["campaign_id_count"] for row in grouped}
+        for campaign in self:
+            campaign.message_count = counts.get(campaign.id, 0)
+
+    @api.model
+    def _send_due_campaigns(self):
+        campaigns = self.search([
+            ("status", "=", "scheduled"),
+            ("scheduled_at", "<=", fields.Datetime.now()),
+        ])
+        for campaign in campaigns:
+            campaign.action_send()
+        return True
+
+    def _registered_member_domain(self):
+        domain = [
+            ("active", "=", True),
+            ("pin_hash", "!=", False),
+        ]
+        if self.campaign_type == "marketing":
+            domain.append(("marketing_opt_in", "=", True))
+        return domain
+
+    def _target_members(self):
+        self.ensure_one()
+        domain = self._registered_member_domain()
+        if self.target_segment == "available_coupon":
+            domain.append(("coupon_ids.state", "=", "available"))
+        elif self.target_segment == "close_reward":
+            domain.append(("stamp_count", ">=", 7))
+        elif self.target_segment in ("inactive_7", "inactive_14", "inactive_30"):
+            days = int(self.target_segment.split("_")[1])
+            cutoff = fields.Datetime.now() - timedelta(days=days)
+            domain.extend([
+                ("last_purchase_at", "!=", False),
+                ("last_purchase_at", "<=", cutoff),
+            ])
+        return self.env["cozy.loyalty.member"].search(domain)
+
+    @api.model
+    def _mongolia_day_bounds(self, value=None):
+        value = value or fields.Datetime.now()
+        local_date = (value + timedelta(hours=8)).date()
+        start_local = datetime.combine(local_date, time.min)
+        start_utc = start_local - timedelta(hours=8)
+        end_utc = start_utc + timedelta(days=1)
+        return start_utc, end_utc
+
+    def _marketing_sent_today(self, member):
+        self.ensure_one()
+        if self.campaign_type != "marketing":
+            return False
+        start_utc, end_utc = self._mongolia_day_bounds(fields.Datetime.now())
+        return bool(self.env["cozy.notification.message"].search_count([
+            ("member_id", "=", member.id),
+            ("campaign_id.campaign_type", "=", "marketing"),
+            ("send_time", ">=", start_utc),
+            ("send_time", "<", end_utc),
+            ("status", "in", ["sent", "read"]),
+        ]))
+
+    def action_send(self):
+        message_model = self.env["cozy.notification.message"]
+        for campaign in self:
+            if campaign.status == "sent":
+                continue
+            try:
+                recipients = campaign._target_members()
+                for member in recipients:
+                    if campaign._marketing_sent_today(member):
+                        continue
+                    message_model.create({
+                        "campaign_id": campaign.id,
+                        "member_id": member.id,
+                        "title": campaign.title,
+                        "message": campaign.message,
+                        "image": campaign.image,
+                        "send_time": fields.Datetime.now(),
+                        "status": "sent",
+                    })
+                campaign.write({
+                    "status": "sent",
+                    "sent_at": fields.Datetime.now(),
+                    "failed_reason": False,
+                })
+            except Exception as error:
+                campaign.write({
+                    "status": "failed",
+                    "failed_reason": str(error),
+                })
+        return True
+
+
+class CozyNotificationMessage(models.Model):
+    _name = "cozy.notification.message"
+    _description = "Cozy Coffee Notification Message"
+    _order = "send_time desc, id desc"
+
+    campaign_id = fields.Many2one("cozy.notification.campaign", ondelete="cascade", index=True)
+    member_id = fields.Many2one("cozy.loyalty.member", required=True, ondelete="cascade", index=True)
+    title = fields.Char(required=True)
+    message = fields.Text(required=True)
+    image = fields.Binary(attachment=True)
+    send_time = fields.Datetime(required=True, default=fields.Datetime.now, index=True)
+    read_at = fields.Datetime()
+    status = fields.Selection(
+        [
+            ("sent", "Sent"),
+            ("read", "Read"),
+            ("failed", "Failed"),
+        ],
+        required=True,
+        default="sent",
+        index=True,
+    )
+
+    def _payload(self):
+        self.ensure_one()
+        return {
+            "id": self.id,
+            "campaign_id": self.campaign_id.id if self.campaign_id else None,
+            "title": self.title,
+            "message": self.message,
+            "image": self.image.decode("ascii") if isinstance(self.image, bytes) else self.image,
+            "send_time": fields.Datetime.to_string(self.send_time) if self.send_time else None,
+            "read_at": fields.Datetime.to_string(self.read_at) if self.read_at else None,
+            "status": self.status,
+        }
+
+    @api.model
+    def _read_member(self, member_id):
+        member = self.env["cozy.loyalty.member"].browse(int(member_id)).exists()
+        if not member or not member.active:
+            raise ValidationError("Loyalty member not found.")
+        return member
+
+    @api.model
+    def api_inbox(self, member_id, limit=30):
+        member = self._read_member(member_id)
+        limit = max(1, min(int(limit or 30), 100))
+        domain = [("member_id", "=", member.id)]
+        messages = self.search(domain, limit=limit)
+        unread_count = self.search_count(domain + [("status", "=", "sent")])
+        return {
+            "unread_count": unread_count,
+            "marketing_opt_in": member.marketing_opt_in,
+            "messages": [message._payload() for message in messages],
+        }
+
+    @api.model
+    def api_mark_read(self, values):
+        values = values or {}
+        member = self._read_member(values.get("member_id"))
+        domain = [("member_id", "=", member.id), ("status", "=", "sent")]
+        if not values.get("all"):
+            message_ids = [int(item) for item in values.get("message_ids") or []]
+            if not message_ids:
+                raise ValidationError("message_ids or all is required.")
+            domain.append(("id", "in", message_ids))
+        messages = self.search(domain)
+        messages.write({
+            "status": "read",
+            "read_at": fields.Datetime.now(),
+        })
+        return self.api_inbox(member.id)
