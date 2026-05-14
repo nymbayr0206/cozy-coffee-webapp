@@ -3413,10 +3413,10 @@ nextjs-portal {
   display: flex;
   flex-direction: column;
   padding: 18px 14px 98px;
-  background: #ffffff;
-  border: 1px solid #ececec;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfbfb 48%, #f7f7f8 100%);
+  border: 1px solid #e6e6e8;
   border-radius: 34px;
-  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.11);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.09);
 }
 
 .auth-phone {
@@ -3448,7 +3448,7 @@ nextjs-portal {
   justify-content: center;
   color: #111111;
   background: #ffffff;
-  border: 1px solid #dddddd;
+  border: 1px solid #dedede;
   border-radius: 50%;
 }
 
@@ -3465,9 +3465,9 @@ nextjs-portal {
 .profile-stamp-card,
 .ticket-card {
   background: #ffffff;
-  border: 1px solid #e8e8e8;
+  border: 1px solid #e4e4e6;
   border-radius: 12px;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.035);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.045);
 }
 
 .loyalty-card {
@@ -3512,7 +3512,7 @@ nextjs-portal {
   justify-content: center;
   color: #111111;
   background: #ffffff;
-  border: 1px solid #d8d8d8;
+  border: 1px solid #d8d8dc;
   border-radius: 50%;
 }
 
@@ -3548,36 +3548,53 @@ nextjs-portal {
 .loyalty-track {
   height: 8px;
   overflow: hidden;
-  background: #eeeeee;
+  background: #eeeeef;
   border-radius: 999px;
 }
 
 .loyalty-track span {
   display: block;
   height: 100%;
-  background: #777777;
+  background: #8a8a8a;
   border-radius: inherit;
   transition: width 180ms ease;
 }
 
-.loyalty-actions {
+.loyalty-guidance {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: 38px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  padding: 12px;
+  color: #222222;
+  background: #f7f7f8;
+  border: 1px solid #e1e1e3;
+  border-radius: 14px;
 }
 
-.loyalty-source-note {
-  min-height: 40px;
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  color: #666666;
-  background: #f7f7f7;
-  border: 1px solid #e3e3e3;
-  border-radius: 999px;
-  font-size: 12px;
+.loyalty-guidance > svg {
+  width: 38px;
+  height: 38px;
+  padding: 9px;
+  color: #ffffff;
+  background: #111111;
+  border-radius: 12px;
+}
+
+.loyalty-guidance strong,
+.coupon-scan-note span {
+  display: block;
+  color: #111111;
+  font-size: 13px;
   line-height: 1.25;
+}
+
+.loyalty-guidance span {
+  display: block;
+  margin-top: 3px;
+  color: #666666;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .user-primary-button,
@@ -3619,22 +3636,22 @@ nextjs-portal {
 
 .user-secondary-button {
   min-height: 40px;
-  color: #111111;
-  background: #ffffff;
-  border-color: #dedede;
+  color: #222222;
+  background: #f7f7f8;
+  border-color: #dddddf;
 }
 
 .user-secondary-button:disabled {
-  color: #a0a0a0;
-  background: #f7f7f7;
+  color: #9a9a9a;
+  background: #eeeeef;
 }
 
 .user-message {
   margin: 0;
   padding: 9px 11px;
-  color: #2f2f2f;
-  background: #f6f6f6;
-  border: 1px solid #e8e8e8;
+  color: #333333;
+  background: #f7f7f8;
+  border: 1px solid #e1e1e3;
   border-radius: 10px;
   font-size: 12px;
   line-height: 1.4;
@@ -4021,6 +4038,18 @@ nextjs-portal {
   min-height: 36px;
 }
 
+.coupon-scan-note {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  color: #222222;
+  background: #f7f7f8;
+  border: 1px solid #e1e1e3;
+  border-radius: 999px;
+}
+
 .coupon-qr-box {
   display: grid;
   justify-items: center;
@@ -4269,9 +4298,5 @@ nextjs-portal {
     border: 0;
     border-radius: 0;
     box-shadow: none;
-  }
-
-  .loyalty-actions {
-    grid-template-columns: 1fr;
   }
 }
