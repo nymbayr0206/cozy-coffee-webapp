@@ -1,7 +1,7 @@
 import { KassServerError } from "./errors";
 import type { PaymentMethod, PaymentPart, StockReceiptPaymentMethod } from "./client-types";
 
-const paymentMethods = new Set<PaymentMethod>(["cash", "card", "qpay", "bank", "credit"]);
+const paymentMethods = new Set<PaymentMethod>(["cash", "card", "qpay", "bank", "credit", "coupon"]);
 const stockReceiptPaymentMethods = new Set<StockReceiptPaymentMethod>(["cash", "credit", "mixed"]);
 
 export async function readJsonBody<T>(request: Request): Promise<T> {
@@ -36,7 +36,7 @@ export function parseNumber(value: unknown, field: string, options?: { min?: num
 
 export function parsePaymentMethod(value: unknown) {
   if (typeof value !== "string" || !paymentMethods.has(value as PaymentMethod)) {
-    throw new KassServerError("invalid_payment_method", "payment_method must be cash, card, qpay, bank, or credit", 400);
+    throw new KassServerError("invalid_payment_method", "payment_method must be cash, card, qpay, bank, credit, or coupon", 400);
   }
 
   return value as PaymentMethod;

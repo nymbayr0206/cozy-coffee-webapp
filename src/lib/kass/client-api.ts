@@ -332,6 +332,22 @@ export function createKassOrder(body: CreateOrderRequest) {
   });
 }
 
+export function validateLoyaltyCoupon(body: { qr_token: string; pin: string }) {
+  return request<{
+    ok: boolean;
+    coupon_id: number;
+    code: string;
+    member_id: number;
+    partner_id: number;
+    partner_name: string;
+    reward_product_id: number;
+    reward_product_name: string;
+  }>("/loyalty/validate", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 export function returnKassOrder(reference: string | number) {
   return request<ReturnOrderResponse>(`/order/${encodeURIComponent(String(reference))}`, {
     method: "DELETE",
@@ -436,6 +452,7 @@ export function paymentMethodLabel(method: string | undefined) {
   if (method === "qpay") return "QPay";
   if (method === "bank") return "Дансаар";
   if (method === "credit") return "Зээлээр";
+  if (method === "coupon") return "Купон";
   if (method === "mixed") return "Хуваасан";
   if (method === "other") return "Бусад";
   return "Тодорхойгүй";

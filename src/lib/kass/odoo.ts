@@ -400,7 +400,7 @@ async function getModuleStates(config: OdooConfig, uid: number) {
     uid,
     "ir.module.module",
     "search_read",
-    [[["name", "in", ["product", "sale", "stock", "mrp", "point_of_sale", "payment_qpay_custom"]]]],
+    [[["name", "in", ["product", "sale", "stock", "mrp", "point_of_sale", "payment_qpay_custom", "cozy_loyalty"]]]],
     { fields: ["name", "state"], limit: 10 },
   );
 
@@ -411,6 +411,7 @@ async function getModuleStates(config: OdooConfig, uid: number) {
     mrp: modules.find((module) => module.name === "mrp")?.state ?? "unknown",
     point_of_sale: modules.find((module) => module.name === "point_of_sale")?.state ?? "unknown",
     payment_qpay_custom: modules.find((module) => module.name === "payment_qpay_custom")?.state ?? "unknown",
+    cozy_loyalty: modules.find((module) => module.name === "cozy_loyalty")?.state ?? "unknown",
   };
 }
 
@@ -2354,6 +2355,7 @@ function formatOdooDateTime(value: string) {
 function parseKassPaymentMethod(note: string | false | undefined) {
   const value = typeof note === "string" ? note.toLowerCase() : "";
   if (value.includes("payment method: mixed")) return "mixed";
+  if (value.includes("payment method: coupon")) return "coupon";
   if (value.includes("payment method: cash")) return "cash";
   if (value.includes("payment method: card")) return "card";
   if (value.includes("payment method: qpay")) return "qpay";
@@ -2369,7 +2371,7 @@ function parseKassPaymentParts(note: string | false | undefined, total: number):
   if (match) {
     const parts = match[1]
       .split(/[;,]/)
-      .map((part) => part.trim().match(/^(cash|card|qpay|bank|credit)\s*=\s*([0-9]+(?:\.[0-9]+)?)/i))
+      .map((part) => part.trim().match(/^(cash|card|qpay|bank|credit|coupon)\s*=\s*([0-9]+(?:\.[0-9]+)?)/i))
       .filter((part): part is RegExpMatchArray => Boolean(part))
       .map((part) => ({
         method: part[1].toLowerCase() as PaymentPart["method"],
@@ -2386,7 +2388,8 @@ function parseKassPaymentParts(note: string | false | undefined, total: number):
     paymentMethod === "card" ||
     paymentMethod === "qpay" ||
     paymentMethod === "bank" ||
-    paymentMethod === "credit"
+    paymentMethod === "credit" ||
+    paymentMethod === "coupon"
   ) {
     return [{ method: paymentMethod, amount: total }];
   }
@@ -2401,6 +2404,93 @@ function paymentPartsMethod(parts: PaymentPart[]) {
 function formatPaymentNote(paymentMethod: string, payments: PaymentPart[]) {
   const paymentParts = payments.map((payment) => `${payment.method}=${payment.amount}`).join("; ");
   return `Kass payment method: ${paymentMethod}\nKass payment parts: ${paymentParts}`;
+}
+
+async function callCozyLoyalty<T>(
+  model: "cozy.loyalty.member" | "cozy.loyalty.coupon",
+  method: string,
+  args: unknown[] = [],
+) {
+  const config = getOdooConfig();
+  const uid = await authenticate(config);
+  const modules = await getModuleStates(config, uid);
+  assertModuleInstalled(modules, "cozy_loyalty");
+
+  try {
+    return await executeKw<T>(config, uid, model, method, args);
+  } catch (error) {
+    if (error instanceof KassServerError) throw error;
+    throw new KassServerError("odoo_connection_failed", "Cozy loyalty Odoo module request failed.", 502);
+  }
+}
+
+export interface CozyLoyaltyWallet {
+  member: {
+    id: number;
+    partner_id: number;
+    name: string;
+    phone: string;
+    stamp_count: number;
+  };
+  coupons: Array<{
+    id: number;
+    code: string;
+    state: "available" | "used" | "expired" | "cancelled" | string;
+    reward_product_id?: number | null;
+    reward_product_name?: string | null;
+    created_at?: string | null;
+    expires_at?: string | null;
+    used_at?: string | null;
+  }>;
+}
+
+export interface CozyCouponValidation {
+  ok: boolean;
+  coupon_id: number;
+  code: string;
+  member_id: number;
+  partner_id: number;
+  partner_name: string;
+  reward_product_id: number;
+  reward_product_name: string;
+}
+
+export function registerOdooLoyaltyMember(input: { name: string; phone: string; pin: string }) {
+  return callCozyLoyalty<CozyLoyaltyWallet>("cozy.loyalty.member", "api_register", [input]);
+}
+
+export function loginOdooLoyaltyMember(input: { phone: string; pin: string }) {
+  return callCozyLoyalty<CozyLoyaltyWallet>("cozy.loyalty.member", "api_login", [input.phone, input.pin]);
+}
+
+export function fetchOdooLoyaltyWallet(memberId: number) {
+  return callCozyLoyalty<CozyLoyaltyWallet>("cozy.loyalty.member", "api_wallet", [memberId]);
+}
+
+export function recordOdooLoyaltyPurchase(input: { member_id?: number | null; phone?: string | null; coffee_quantity: number }) {
+  return callCozyLoyalty<CozyLoyaltyWallet>("cozy.loyalty.member", "api_record_purchase", [input]);
+}
+
+export function createOdooLoyaltyCouponQr(memberId: number, couponId: number) {
+  return callCozyLoyalty<{ coupon: CozyLoyaltyWallet["coupons"][number]; qr_token: string }>(
+    "cozy.loyalty.member",
+    "api_create_coupon_qr",
+    [memberId, couponId],
+  );
+}
+
+export function validateOdooLoyaltyCoupon(qrToken: string, pin: string) {
+  return callCozyLoyalty<CozyCouponValidation>("cozy.loyalty.coupon", "api_validate_coupon", [qrToken, pin]);
+}
+
+export function redeemOdooLoyaltyCoupon(input: {
+  qr_token: string;
+  pin: string;
+  session_id?: string | null;
+  order_ref?: string | number | null;
+  cashier_name?: string | null;
+}) {
+  return callCozyLoyalty<CozyCouponValidation & { state: string }>("cozy.loyalty.coupon", "api_redeem_coupon", [input]);
 }
 
 function normalizeOdooDateTime(value: string | false | undefined) {
@@ -2622,13 +2712,17 @@ export async function getOdooSalesReport(startIso: string, endIso: string) {
       const creditAmount = order.payment_parts
         .filter((payment) => payment.method === "credit")
         .reduce((total, payment) => total + payment.amount, 0);
-      const knownTotal = cashAmount + cardAmount + qpayAmount + bankAmount + creditAmount;
+      const couponAmount = order.payment_parts
+        .filter((payment) => payment.method === "coupon")
+        .reduce((total, payment) => total + payment.amount, 0);
+      const knownTotal = cashAmount + cardAmount + qpayAmount + bankAmount + creditAmount + couponAmount;
 
       sum.cash_total += cashAmount;
       sum.card_total += cardAmount;
       sum.qpay_total += qpayAmount;
       sum.bank_total += bankAmount;
       sum.credit_total += creditAmount;
+      sum.coupon_total += couponAmount;
       sum.other_total += Math.max(0, order.total - knownTotal);
       return sum;
     },
@@ -2639,6 +2733,7 @@ export async function getOdooSalesReport(startIso: string, endIso: string) {
       qpay_total: 0,
       bank_total: 0,
       credit_total: 0,
+      coupon_total: 0,
       other_total: 0,
       orders_count: 0,
     },

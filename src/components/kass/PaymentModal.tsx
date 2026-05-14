@@ -9,6 +9,7 @@ import {
   ReceiptText,
   RefreshCw,
   Split,
+  Ticket,
   Wallet,
   X,
   type LucideIcon,
@@ -22,6 +23,7 @@ import {
   getPartners,
   getReadableError,
   paymentMethodLabel,
+  validateLoyaltyCoupon,
 } from "@/lib/kass/client-api";
 import type {
   CartItem,
@@ -47,6 +49,7 @@ const paymentOptions: Array<{
   icon: LucideIcon;
 }> = [
   { method: "qpay", label: "QPay", icon: QrCode },
+  { method: "coupon", label: "Купон", icon: Ticket },
   { method: "card", label: "Карт", icon: CreditCard },
   { method: "bank", label: "Дансаар", icon: Landmark },
   { method: "credit", label: "Зээлээр", icon: HandCoins },
@@ -72,6 +75,14 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
   const [qpayChecking, setQpayChecking] = useState(false);
   const [qpayPaid, setQpayPaid] = useState(false);
   const [qpayNotice, setQpayNotice] = useState<string | null>(null);
+  const [couponQrToken, setCouponQrToken] = useState("");
+  const [couponPin, setCouponPin] = useState("");
+  const [couponChecking, setCouponChecking] = useState(false);
+  const [couponValidated, setCouponValidated] = useState<{
+    code: string;
+    partner_name: string;
+    reward_product_name: string;
+  } | null>(null);
   const [partners, setPartners] = useState<KassPartner[]>([]);
   const [partnersLoading, setPartnersLoading] = useState(false);
   const [selectedCreditPartnerId, setSelectedCreditPartnerId] = useState("");
@@ -210,6 +221,10 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     setQpayChecking(false);
     setQpayPaid(false);
     setQpayNotice(null);
+    setCouponQrToken("");
+    setCouponPin("");
+    setCouponChecking(false);
+    setCouponValidated(null);
     setSelectedCreditPartnerId("");
     qpayRequestKeyRef.current = null;
     void loadPartners();
@@ -230,7 +245,11 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
 
   if (!open) return null;
 
-  async function submitOrder(nextMethod: OrderPaymentMethod, payments: PaymentPart[]) {
+  async function submitOrder(
+    nextMethod: OrderPaymentMethod,
+    payments: PaymentPart[],
+    options?: { couponQrToken?: string; couponPin?: string },
+  ) {
     if (!sessionId) {
       setError("Ээлж нээгдээгүй байна.");
       return;
@@ -262,6 +281,8 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
         partner_name: creditPartnerName,
         lines: orderLines,
         qpay_transaction_id: qpayPayment ? qpayInvoice?.transaction_id ?? null : null,
+        coupon_qr_token: options?.couponQrToken ?? null,
+        coupon_pin: options?.couponPin ?? null,
       });
 
       onPaymentSuccess({
@@ -310,6 +331,28 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     }
   }
 
+  async function handleCouponCheck() {
+    setCouponChecking(true);
+    setCouponValidated(null);
+    setError(null);
+
+    try {
+      const coupon = await validateLoyaltyCoupon({
+        qr_token: couponQrToken.trim(),
+        pin: couponPin,
+      });
+      setCouponValidated({
+        code: coupon.code,
+        partner_name: coupon.partner_name,
+        reward_product_name: coupon.reward_product_name,
+      });
+    } catch (couponError) {
+      setError(getReadableError(couponError));
+    } finally {
+      setCouponChecking(false);
+    }
+  }
+
   const qpayStateLabel = qpayInvoice?.state
     ? qpayInvoice.state === "paid"
       ? "Төлөгдсөн"
@@ -350,6 +393,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
                   setSplitBankConfirmed(false);
                   setError(null);
                   setQpayNotice(null);
+                  setCouponValidated(null);
                 }}
               >
                 <Icon size={18} aria-hidden="true" />
@@ -422,6 +466,74 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
                   >
                     <ReceiptText size={17} aria-hidden="true" />
                     <span>{submitting ? "Илгээж байна" : "Захиалга үүсгэх"}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {method === "coupon" ? (
+            <div className="payment-method-panel">
+              <div className="terminal-placeholder">
+                <Ticket size={58} aria-hidden="true" />
+                <span>Купоны QR уншуулна уу</span>
+              </div>
+              <div>
+                <h3>Cozy coupon</h3>
+                <p className="muted-text">Купоноор төлөх дүн: {formatMoney(total)}</p>
+                <label className="field">
+                  <span>QR token</span>
+                  <input
+                    value={couponQrToken}
+                    onChange={(event) => {
+                      setCouponQrToken(event.target.value);
+                      setCouponValidated(null);
+                    }}
+                    placeholder="COZY:..."
+                    autoComplete="off"
+                  />
+                </label>
+                <label className="field">
+                  <span>Гүйлгээний нууц үг</span>
+                  <input
+                    value={couponPin}
+                    onChange={(event) => {
+                      setCouponPin(event.target.value);
+                      setCouponValidated(null);
+                    }}
+                    placeholder="PIN"
+                    type="password"
+                    autoComplete="off"
+                  />
+                </label>
+                {couponValidated ? (
+                  <div className="success-box">
+                    {couponValidated.code} купон баталгаажлаа. Хэрэглэгч: {couponValidated.partner_name}
+                  </div>
+                ) : null}
+                <div className="payment-action-row">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => void handleCouponCheck()}
+                    disabled={!couponQrToken.trim() || !couponPin || couponChecking || submitting}
+                  >
+                    {couponChecking ? <Loader2 className="spin-icon" size={17} aria-hidden="true" /> : <QrCode size={17} aria-hidden="true" />}
+                    <span>{couponChecking ? "Шалгаж байна" : "Купон шалгах"}</span>
+                  </button>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={() =>
+                      void submitOrder("coupon", [{ method: "coupon", amount: total }], {
+                        couponQrToken: couponQrToken.trim(),
+                        couponPin,
+                      })
+                    }
+                    disabled={!couponValidated || submitting}
+                  >
+                    <ReceiptText size={17} aria-hidden="true" />
+                    <span>{submitting ? "Илгээж байна" : "Купоноор төлөх"}</span>
                   </button>
                 </div>
               </div>

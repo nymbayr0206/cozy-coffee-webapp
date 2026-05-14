@@ -1,4 +1,4 @@
-export type PaymentMethod = "cash" | "card" | "qpay" | "bank" | "credit";
+export type PaymentMethod = "cash" | "card" | "qpay" | "bank" | "credit" | "coupon";
 export type OrderPaymentMethod = PaymentMethod | "mixed";
 
 export interface PaymentPart {
@@ -401,6 +401,8 @@ export interface CreateOrderRequest {
   partner_name?: string | null;
   lines: OrderLineRequest[];
   qpay_transaction_id?: number | null;
+  coupon_qr_token?: string | null;
+  coupon_pin?: string | null;
 }
 
 export interface CreateOrderResponse {
@@ -503,6 +505,7 @@ export interface SalesReportResponse {
   qpay_total: number;
   bank_total: number;
   credit_total: number;
+  coupon_total?: number;
   other_total: number;
   orders_count: number;
   average_order: number;
@@ -525,6 +528,7 @@ export interface KassReport {
   qpay_total?: number;
   bank_total?: number;
   credit_total?: number;
+  coupon_total?: number;
   orders_count?: number;
   returned_orders_count?: number;
   expected_cash?: number;
@@ -549,6 +553,7 @@ export interface CloseSessionResponse {
   qpay_total?: number;
   bank_total?: number;
   credit_total?: number;
+  coupon_total?: number;
   orders_count?: number;
   closed_at?: string;
   report?: Partial<KassReport>;
