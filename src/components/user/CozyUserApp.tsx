@@ -429,19 +429,13 @@ export function CozyUserApp() {
 
         {activeTab === "scan" ? (
           <section className="scan-screen">
-            <header className="profile-top">
-              <span />
-              <h1>QR уншуулах</h1>
-              <span />
-            </header>
-
             <article className="scan-card">
               <div className="scan-symbol" aria-hidden="true">
-                <QrCode size={78} strokeWidth={1.8} />
+                <QrCode size={172} strokeWidth={1.35} />
               </div>
               <div className="scan-copy">
                 <strong>Касс дээр энэ хэсгийг харуулна</strong>
-                <span>Ажилтан таны QR эсвэл утасны дугаарыг уншуулж тамга нэмнэ.</span>
+                <span>Ажилтан уншуулж тамга нэмнэ.</span>
               </div>
               <div className="scan-member">
                 <span>Утасны дугаар</span>
@@ -517,7 +511,7 @@ export function CozyUserApp() {
         <nav className="user-bottom-nav" aria-label="User app menu">
           {[
             ["home", "Нүүр", Home],
-            ["scan", "QR", QrCode],
+            ["scan", "", QrCode],
             ["coupons", "Купон", Ticket],
             ["profile", "Профайл", User],
           ].map(([key, label, Icon]) => {
