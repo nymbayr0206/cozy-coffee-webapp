@@ -3424,23 +3424,12 @@ nextjs-portal {
   padding-bottom: 22px;
 }
 
-.status-row {
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 10px;
-  color: #0d0d0d;
-  font-size: 13px;
-  font-weight: 760;
-}
-
 .user-home-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 18px 2px 28px;
+  padding: 4px 2px 28px;
 }
 
 .user-home-header img {
@@ -4139,7 +4128,7 @@ nextjs-portal {
   display: grid;
   justify-items: center;
   gap: 16px;
-  padding: 34px 20px 20px;
+  padding: 18px 20px 20px;
 }
 
 .auth-brand img:first-child {

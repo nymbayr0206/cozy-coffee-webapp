@@ -284,11 +284,6 @@ export function CozyUserApp() {
     return (
       <main className="cozy-user-app auth">
         <section className="auth-phone" aria-label="Cozy Coffee бүртгэл">
-          <div className="status-row">
-            <span>9:41</span>
-            <span>●●●</span>
-          </div>
-
           <div className="auth-brand">
             <img src="/cozy-user-icon.png" alt="Cozy Coffee" />
             <img src="/cozy-coffee-logo.jpg" alt="Cozy Coffee logo" />
@@ -368,11 +363,6 @@ export function CozyUserApp() {
   return (
     <main className="cozy-user-app">
       <section className="user-phone-shell" aria-label="Cozy Coffee хэрэглэгчийн app">
-        <div className="status-row">
-          <span>9:41</span>
-          <span>●●●</span>
-        </div>
-
         {activeTab === "home" ? (
           <>
             <header className="user-home-header">
