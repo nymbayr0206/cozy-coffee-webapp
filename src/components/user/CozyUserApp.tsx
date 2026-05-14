@@ -216,6 +216,31 @@ export function CozyUserApp() {
     setMessage("");
   }
 
+  function handleProfileAction(action: "coupons" | "orders" | "saved" | "info" | "settings") {
+    if (action === "coupons") {
+      setMessage("");
+      setActiveTab("coupons");
+      return;
+    }
+
+    if (action === "info") {
+      setMessage(`Нэр: ${profile?.name ?? "-"}. Утас: ${profile?.phone ?? "-"}`);
+      return;
+    }
+
+    if (action === "orders") {
+      setMessage("Захиалгын түүх удахгүй Odoo захиалгын мэдээлэлтэй холбогдоно.");
+      return;
+    }
+
+    if (action === "saved") {
+      setMessage("Хадгалсан бүтээгдэхүүний хэсэг удахгүй нэмэгдэнэ.");
+      return;
+    }
+
+    setMessage("Тохиргооны хэсэг удахгүй нэмэгдэнэ.");
+  }
+
   if (!hydrated) {
     return <main className="cozy-user-app loading" aria-label="Cozy Coffee user app" />;
   }
@@ -399,19 +424,19 @@ export function CozyUserApp() {
             <header className="profile-top">
               <span />
               <h1>Профайл</h1>
-              <button className="round-icon-button" type="button" aria-label="Тохиргоо">
+              <button className="round-icon-button" type="button" aria-label="Тохиргоо" onClick={() => handleProfileAction("settings")}>
                 <Settings size={18} aria-hidden="true" />
               </button>
             </header>
 
-            <article className="profile-card">
+            <button className="profile-card profile-card-button" type="button" onClick={() => handleProfileAction("info")}>
               <img src="/cozy-user-icon.png" alt="" />
               <div>
                 <strong>{profile.name}</strong>
                 <span>{profile.phone}</span>
               </div>
               <ChevronRight size={18} aria-hidden="true" />
-            </article>
+            </button>
 
             <article className="profile-stamp-card">
               <div>
@@ -428,14 +453,15 @@ export function CozyUserApp() {
 
             <div className="profile-menu">
               {[
-                ["Миний купонууд", Ticket],
-                ["Захиалгын түүх", Coffee],
-                ["Хадгалсан бүтээгдэхүүн", Heart],
-                ["Миний мэдээлэл", User],
-              ].map(([label, Icon]) => {
+                ["coupons", "Миний купонууд", Ticket],
+                ["orders", "Захиалгын түүх", Coffee],
+                ["saved", "Хадгалсан бүтээгдэхүүн", Heart],
+                ["info", "Миний мэдээлэл", User],
+              ].map(([action, label, Icon]) => {
                 const MenuIcon = Icon as typeof Ticket;
+                const profileAction = action as "coupons" | "orders" | "saved" | "info";
                 return (
-                  <button key={label as string} type="button">
+                  <button key={action as string} type="button" onClick={() => handleProfileAction(profileAction)}>
                     <MenuIcon size={19} aria-hidden="true" />
                     <span>{label as string}</span>
                     <ChevronRight size={18} aria-hidden="true" />
@@ -448,6 +474,7 @@ export function CozyUserApp() {
                 <ChevronRight size={18} aria-hidden="true" />
               </button>
             </div>
+            {message ? <p className="user-message profile-action-notice">{message}</p> : null}
           </section>
         ) : null}
 

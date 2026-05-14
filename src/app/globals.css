@@ -4112,6 +4112,18 @@ nextjs-portal {
   padding: 18px;
 }
 
+.profile-card-button {
+  width: 100%;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.profile-card-button:hover,
+.profile-menu button:hover {
+  background: #f8f8f8;
+}
+
 .profile-card img {
   width: 68px;
   height: 68px;
@@ -4166,6 +4178,10 @@ nextjs-portal {
 
 .profile-menu button:last-child {
   border-bottom: 0;
+}
+
+.profile-action-notice {
+  margin-top: -6px;
 }
 
 .auth-brand {
