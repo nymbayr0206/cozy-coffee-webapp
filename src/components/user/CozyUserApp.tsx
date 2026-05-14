@@ -2,6 +2,7 @@
 
 import {
   Bell,
+  Camera,
   ChevronRight,
   Coffee,
   Eye,
@@ -19,7 +20,7 @@ import {
   User,
   UserRound,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type AuthMode = "login" | "register";
 type TabKey = "home" | "scan" | "coupons" | "profile";
@@ -135,6 +136,12 @@ export function CozyUserApp() {
   const [coupons, setCoupons] = useState<CozyUserCoupon[]>([]);
   const [authLoading, setAuthLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const scanFrameRef = useRef<number | null>(null);
+  const [scanActive, setScanActive] = useState(false);
+  const [scanCode, setScanCode] = useState("");
+  const [manualScanCode, setManualScanCode] = useState("");
+  const [scanNotice, setScanNotice] = useState("");
 
   const remaining = Math.max(STAMP_TARGET - stamps, 0);
   const progress = useMemo(() => (stamps / STAMP_TARGET) * 100, [stamps]);
@@ -164,6 +171,12 @@ export function CozyUserApp() {
       }
     }
     setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      stopCashierScan();
+    };
   }, []);
 
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
@@ -247,6 +260,89 @@ export function CozyUserApp() {
     }
 
     setMessage("Тохиргооны хэсэг удахгүй нэмэгдэнэ.");
+  }
+
+  function stopCashierScan() {
+    if (scanFrameRef.current !== null) {
+      window.cancelAnimationFrame(scanFrameRef.current);
+      scanFrameRef.current = null;
+    }
+
+    const stream = videoRef.current?.srcObject;
+    if (stream instanceof MediaStream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setScanActive(false);
+  }
+
+  async function startCashierScan() {
+    setScanNotice("");
+    setScanCode("");
+
+    const BarcodeDetectorCtor = (window as unknown as { BarcodeDetector?: new (options?: unknown) => { detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>> } }).BarcodeDetector;
+    if (!BarcodeDetectorCtor) {
+      setScanNotice("Таны browser камераар код унших боломжгүй байна. Доорх талбарт кодоо оруулна уу.");
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setScanNotice("Камер ашиглах боломжгүй байна. Доорх талбарт кодоо оруулна уу.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+
+      if (!videoRef.current) return;
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
+      setScanActive(true);
+
+      const detector = new BarcodeDetectorCtor({ formats: ["qr_code"] });
+      const tick = async () => {
+        const video = videoRef.current;
+        if (!video || video.readyState < 2) {
+          scanFrameRef.current = window.requestAnimationFrame(tick);
+          return;
+        }
+
+        try {
+          const codes = await detector.detect(video);
+          const rawValue = codes[0]?.rawValue?.trim();
+          if (rawValue) {
+            setScanCode(rawValue);
+            setScanNotice("Код уншигдлаа. Касс дээр баталгаажуулна уу.");
+            stopCashierScan();
+            return;
+          }
+        } catch {
+          setScanNotice("Код уншихад алдаа гарлаа. Дахин ойртуулж үзнэ үү.");
+        }
+
+        scanFrameRef.current = window.requestAnimationFrame(tick);
+      };
+
+      scanFrameRef.current = window.requestAnimationFrame(tick);
+    } catch {
+      setScanNotice("Камер нээж чадсангүй. Зөвшөөрөл өгөөд дахин оролдоно уу.");
+    }
+  }
+
+  function handleManualScanSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const code = manualScanCode.trim();
+    if (!code) {
+      setScanNotice("Кодоо оруулна уу.");
+      return;
+    }
+    setScanCode(code);
+    setScanNotice("Код бүртгэгдлээ. Касс дээр баталгаажуулна уу.");
   }
 
   if (!hydrated) {
@@ -387,7 +483,7 @@ export function CozyUserApp() {
               <div className="loyalty-guidance">
                 <QrCode size={18} aria-hidden="true" />
                 <div>
-                  <strong>Касс дээр QR эсвэл утсаа уншуулна</strong>
+                  <strong>Кассын кодыг утсаараа уншуулна</strong>
                   <span>Худалдан авалтын дараа тамга автоматаар нэмэгдэнэ.</span>
                 </div>
               </div>
@@ -430,22 +526,36 @@ export function CozyUserApp() {
         {activeTab === "scan" ? (
           <section className="scan-screen">
             <article className="scan-card">
-              <div className="scan-symbol" aria-hidden="true">
-                <QrCode size={172} strokeWidth={1.35} />
+              <div className={scanActive ? "scan-camera-frame active" : "scan-camera-frame"}>
+                <video ref={videoRef} muted playsInline aria-label="Кассын код унших камер" />
+                {!scanActive ? (
+                  <div className="scan-camera-idle">
+                    <Camera size={64} strokeWidth={1.7} aria-hidden="true" />
+                  </div>
+                ) : null}
               </div>
               <div className="scan-copy">
-                <strong>Касс дээр энэ хэсгийг харуулна</strong>
-                <span>Ажилтан уншуулж тамга нэмнэ.</span>
+                <strong>Кассын дэлгэц дээрх кодыг уншуулна</strong>
+                <span>Худалдан авалтын дараа тамга таны карт дээр нэмэгдэнэ.</span>
               </div>
-              <div className="scan-member">
-                <span>Утасны дугаар</span>
-                <strong>{profile.phone}</strong>
+              <div className="scan-actions">
+                <button className="user-primary-button" type="button" onClick={() => void startCashierScan()} disabled={scanActive}>
+                  <Camera size={17} aria-hidden="true" />
+                  Камер нээх
+                </button>
+                {scanActive ? (
+                  <button className="user-secondary-button" type="button" onClick={stopCashierScan}>
+                    Зогсоох
+                  </button>
+                ) : null}
               </div>
+              <form className="manual-scan-form" onSubmit={handleManualScanSubmit}>
+                <input value={manualScanCode} onChange={(event) => setManualScanCode(event.target.value)} placeholder="Код гараар оруулах" />
+                <button type="submit">OK</button>
+              </form>
+              {scanCode ? <code className="scan-result">{scanCode}</code> : null}
+              {scanNotice ? <p className="user-message scan-message">{scanNotice}</p> : null}
             </article>
-
-            <div className="scan-note">
-              Худалдан авалт бүрийн дараа тамга таны карт дээр автоматаар шинэчлэгдэнэ.
-            </div>
           </section>
         ) : null}
 
