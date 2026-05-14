@@ -187,6 +187,17 @@ interface RecipeLineInput {
   quantity: number;
 }
 
+export interface OdooRecipeStockConsumption {
+  component_product_id: number;
+  component_name: string;
+  source_product_id: number;
+  source_product_name: string;
+  source_quantity: number;
+  quantity: number;
+  uom_id?: number | null;
+  uom_name?: string | null;
+}
+
 interface OdooStockLocationRecord {
   id: number;
   name?: string;
@@ -2889,6 +2900,15 @@ export async function createOdooSaleOrder(
   }
 }
 
+export async function previewOdooRecipeStockConsumption(lines: Array<{ product_id: number; quantity: number; price: number }>) {
+  const config = getOdooConfig();
+  const uid = await authenticate(config);
+  const modules = await getModuleStates(config, uid);
+  assertModuleInstalled(modules, "product");
+
+  return calculateRecipeStockConsumptionDetails(config, uid, modules, lines);
+}
+
 export async function consumeOdooRecipeStock(lines: Array<{ product_id: number; quantity: number; price: number }>) {
   const config = getOdooConfig();
   const uid = await authenticate(config);
@@ -3007,6 +3027,71 @@ async function calculateRecipeStockDeltas(
   }
 
   return consumption;
+}
+
+async function calculateRecipeStockConsumptionDetails(
+  config: OdooConfig,
+  uid: number,
+  modules: Record<string, string>,
+  lines: Array<{ product_id: number; quantity: number; price: number }>,
+) {
+  const details: OdooRecipeStockConsumption[] = [];
+
+  for (const line of lines) {
+    const soldQuantity = Number(line.quantity);
+    if (!Number.isFinite(soldQuantity) || soldQuantity <= 0) continue;
+
+    const product = await readProductForRecipe(config, uid, line.product_id);
+    const sourceName = product.display_name ?? product.name ?? `Product ${line.product_id}`;
+    const templateId = relationId(product.product_tmpl_id);
+    if (!templateId) {
+      throw new KassServerError("product_not_found", "Product template not found.", 404);
+    }
+
+    let bom: OdooBomRecord | null = null;
+    let bomLines: OdooBomLineRecord[] = [];
+
+    if (modules.mrp === "installed") {
+      bom = await readPrimaryBom(config, uid, line.product_id, templateId);
+      bomLines = bom ? await readBomLines(config, uid, bom.id) : [];
+    }
+
+    if (bomLines.length > 0) {
+      for (const bomLine of bomLines) {
+        const componentId = relationId(bomLine.product_id);
+        const componentQuantity = Number(bomLine.product_qty ?? 0);
+        if (!componentId || !Number.isFinite(componentQuantity) || componentQuantity <= 0) continue;
+
+        details.push({
+          component_product_id: componentId,
+          component_name: relationName(bomLine.product_id) ?? `Product ${componentId}`,
+          source_product_id: line.product_id,
+          source_product_name: sourceName,
+          source_quantity: soldQuantity,
+          quantity: componentQuantity * soldQuantity,
+          uom_id: relationId(bomLine.product_uom_id) ?? null,
+          uom_name: relationName(bomLine.product_uom_id) ?? null,
+        });
+      }
+      continue;
+    }
+
+    const isStorable = product.is_storable === true || product.type === "product";
+    if (isStorable) {
+      details.push({
+        component_product_id: line.product_id,
+        component_name: sourceName,
+        source_product_id: line.product_id,
+        source_product_name: sourceName,
+        source_quantity: soldQuantity,
+        quantity: soldQuantity,
+        uom_id: relationId(product.uom_id) ?? null,
+        uom_name: relationName(product.uom_id) ?? null,
+      });
+    }
+  }
+
+  return details;
 }
 
 async function consumeOdooProductStock(

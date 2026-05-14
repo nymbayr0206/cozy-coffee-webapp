@@ -28,6 +28,7 @@ import {
   formatMoney,
   formatUnitName,
   getPartners,
+  getProductStockUsage,
   getProducts,
   getReadableError,
   getProductUoms,
@@ -45,6 +46,7 @@ import type {
   KassStockReceipt,
   KassUom,
   ProductFormRequest,
+  ProductStockUsageResponse,
   StockReceiptPaymentMethod,
 } from "@/lib/kass/client-types";
 
@@ -187,6 +189,10 @@ export default function WarehousePage() {
   const [partnerError, setPartnerError] = useState<string | null>(null);
   const [receiptError, setReceiptError] = useState<string | null>(null);
   const [stockProduct, setStockProduct] = useState<KassProduct | null>(null);
+  const [usageProduct, setUsageProduct] = useState<KassProduct | null>(null);
+  const [stockUsage, setStockUsage] = useState<ProductStockUsageResponse | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageError, setUsageError] = useState<string | null>(null);
   const [stockForm, setStockForm] = useState(emptyStockForm);
   const [stockSaving, setStockSaving] = useState(false);
   const [stockError, setStockError] = useState<string | null>(null);
@@ -446,6 +452,28 @@ export default function WarehousePage() {
     });
     setStockError(null);
     setError(null);
+  }
+
+  async function openUsageModal(product: KassProduct) {
+    setUsageProduct(product);
+    setStockUsage(null);
+    setUsageError(null);
+    setUsageLoading(true);
+
+    try {
+      const response = await getProductStockUsage(product.id);
+      setStockUsage(response);
+    } catch (loadError) {
+      setUsageError(getReadableError(loadError));
+    } finally {
+      setUsageLoading(false);
+    }
+  }
+
+  function closeUsageModal() {
+    setUsageProduct(null);
+    setStockUsage(null);
+    setUsageError(null);
   }
 
   function openProductModal() {
@@ -966,6 +994,15 @@ export default function WarehousePage() {
                         <button
                           className="secondary-button compact-button"
                           type="button"
+                          onClick={() => openUsageModal(product)}
+                          data-testid={`warehouse-mobile-usage-${product.id}`}
+                        >
+                          <ClipboardList size={16} aria-hidden="true" />
+                          <span>Зарцуулалт</span>
+                        </button>
+                        <button
+                          className="secondary-button compact-button"
+                          type="button"
                           onClick={() => openEditProductModal(product)}
                           data-testid={`warehouse-mobile-edit-${product.id}`}
                         >
@@ -1050,6 +1087,15 @@ export default function WarehousePage() {
                               >
                                 <PackagePlus size={16} aria-hidden="true" />
                                 <span>Орлого</span>
+                              </button>
+                              <button
+                                className="icon-button"
+                                type="button"
+                                onClick={() => openUsageModal(product)}
+                                aria-label="Зарцуулалт харах"
+                                data-testid={`warehouse-usage-${product.id}`}
+                              >
+                                <ClipboardList size={16} aria-hidden="true" />
                               </button>
                               <button
                                 className="icon-button"
@@ -1795,6 +1841,133 @@ export default function WarehousePage() {
               </button>
             </div>
           </form>
+        </div>
+      ) : null}
+
+      {usageProduct ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="stock-usage-title">
+          <div className="modal-card usage-modal" data-testid="warehouse-usage-modal">
+            <button
+              className="icon-button modal-close"
+              type="button"
+              aria-label="Хаах"
+              onClick={closeUsageModal}
+            >
+              <X size={18} aria-hidden="true" />
+            </button>
+            <p className="eyebrow">Агуулахын зарцуулалт</p>
+            <h2 id="stock-usage-title">{usageProduct.name}</h2>
+
+            {usageLoading ? (
+              <div className="state-box">Зарцуулалтын мэдээлэл уншиж байна.</div>
+            ) : usageError ? (
+              <div className="state-box error-state">
+                <strong>Зарцуулалт уншихад алдаа гарлаа</strong>
+                <p>{usageError}</p>
+              </div>
+            ) : stockUsage ? (
+              <>
+                <div className="report-kpi-grid warehouse-receipt-metrics">
+                  <div className="metric strong-metric">
+                    <span>Нийт хасагдсан</span>
+                    <strong>
+                      {quantityText(stockUsage.total_quantity)} {formatUnitName(stockUsage.component.uom_name ?? usageProduct.uom_name)}
+                    </strong>
+                  </div>
+                  <div className="metric">
+                    <span>Борлуулалтын баримт</span>
+                    <strong>{stockUsage.orders_count}</strong>
+                  </div>
+                  <div className="metric">
+                    <span>Бүтээгдэхүүн</span>
+                    <strong>{stockUsage.products.length}</strong>
+                  </div>
+                </div>
+
+                <section className="usage-section">
+                  <div className="usage-section-heading">
+                    <div>
+                      <p className="eyebrow">Юунаас хасагдсан</p>
+                      <h3>Бүтээгдэхүүнээр</h3>
+                    </div>
+                    <span className="soft-pill">{stockUsage.products.length} мөр</span>
+                  </div>
+                  <div className="table-wrap usage-table-wrap">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Бүтээгдэхүүн</th>
+                          <th>Хасагдсан</th>
+                          <th>Баримт</th>
+                          <th>Сүүлд</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stockUsage.products.length > 0 ? (
+                          stockUsage.products.map((row) => (
+                            <tr key={row.product_id}>
+                              <td><strong>{row.product_name}</strong></td>
+                              <td>
+                                {quantityText(row.quantity)} {formatUnitName(row.uom_name ?? stockUsage.component.uom_name ?? usageProduct.uom_name)}
+                              </td>
+                              <td>{row.orders_count}</td>
+                              <td>{formatDateTime(row.last_used_at)}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={4}>Энэ бараанаас борлуулалтаар хасагдсан бүртгэл алга байна.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+
+                <section className="usage-section">
+                  <div className="usage-section-heading">
+                    <div>
+                      <p className="eyebrow">Сүүлийн хөдөлгөөн</p>
+                      <h3>Баримтаар</h3>
+                    </div>
+                    <span className="soft-pill">{stockUsage.orders.length} мөр</span>
+                  </div>
+                  <div className="table-wrap usage-table-wrap">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Огноо</th>
+                          <th>Баримт</th>
+                          <th>Бүтээгдэхүүн</th>
+                          <th>Зарагдсан</th>
+                          <th>Хасагдсан</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stockUsage.orders.length > 0 ? (
+                          stockUsage.orders.map((row, index) => (
+                            <tr key={`${row.receipt_number ?? row.order_id ?? index}-${row.source_product_id}`}>
+                              <td>{formatDateTime(row.created_at)}</td>
+                              <td>{row.receipt_number ?? row.order_id ?? "Баримтгүй"}</td>
+                              <td><strong>{row.source_product_name}</strong></td>
+                              <td>{quantityText(row.sold_quantity)} ш</td>
+                              <td>
+                                {quantityText(row.quantity)} {formatUnitName(row.uom_name ?? stockUsage.component.uom_name ?? usageProduct.uom_name)}
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={5}>Сүүлийн хөдөлгөөн байхгүй байна.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              </>
+            ) : null}
+          </div>
         </div>
       ) : null}
 

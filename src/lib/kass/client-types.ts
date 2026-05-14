@@ -6,6 +6,17 @@ export interface PaymentPart {
   amount: number;
 }
 
+export interface KassStockConsumption {
+  component_product_id: number;
+  component_name: string;
+  source_product_id: number;
+  source_product_name: string;
+  source_quantity: number;
+  quantity: number;
+  uom_id?: number | null;
+  uom_name?: string | null;
+}
+
 export interface KassApiErrorShape {
   error?: {
     code?: string;
@@ -246,6 +257,41 @@ export interface StockReceiptMutationResponse {
   quantity_delta: number;
 }
 
+export interface ProductStockUsageSource {
+  product_id: number;
+  product_name: string;
+  quantity: number;
+  orders_count: number;
+  last_used_at?: string | null;
+  uom_id?: number | null;
+  uom_name?: string | null;
+}
+
+export interface ProductStockUsageOrder {
+  order_id?: string | number;
+  receipt_number?: string;
+  created_at: string;
+  source_product_id: number;
+  source_product_name: string;
+  sold_quantity: number;
+  quantity: number;
+  uom_id?: number | null;
+  uom_name?: string | null;
+}
+
+export interface ProductStockUsageResponse {
+  component: {
+    product_id: number;
+    product_name: string;
+    uom_id?: number | null;
+    uom_name?: string | null;
+  };
+  total_quantity: number;
+  orders_count: number;
+  products: ProductStockUsageSource[];
+  orders: ProductStockUsageOrder[];
+}
+
 export type FinanceSettlementType = "payable" | "receivable";
 
 export interface FinanceSettlement {
@@ -430,6 +476,7 @@ export interface KassOrderSummary {
   status?: "active" | "returned";
   created_at?: string;
   returned_at?: string;
+  stock_consumptions?: KassStockConsumption[];
   date?: string;
   [key: string]: unknown;
 }

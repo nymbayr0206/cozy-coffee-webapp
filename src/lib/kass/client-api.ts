@@ -26,6 +26,7 @@ import type {
   FinanceSettlementResponse,
   FinanceSettlementsResponse,
   ProductScope,
+  ProductStockUsageResponse,
   ProductStockInRequest,
   ProductStockInResponse,
   QpayCheckRequest,
@@ -242,6 +243,10 @@ export function updateKassProduct(productId: number, body: Partial<ProductFormRe
 
 export function getProductRecipe(productId: number) {
   return request<ProductRecipeResponse>(`/products/${encodeURIComponent(productId)}/recipe`);
+}
+
+export function getProductStockUsage(productId: number) {
+  return request<ProductStockUsageResponse>(`/products/${encodeURIComponent(productId)}/usage`);
 }
 
 export function updateProductRecipe(productId: number, body: ProductRecipeRequest) {

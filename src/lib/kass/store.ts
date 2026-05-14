@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { KassServerError } from "./errors";
-import type { OrderPaymentMethod, PaymentPart } from "./client-types";
+import type { KassStockConsumption, OrderPaymentMethod, PaymentPart } from "./client-types";
 
 export interface KassSessionRecord {
   session_id: string;
@@ -37,6 +37,7 @@ export interface KassOrderRecord {
     quantity: number;
     price: number;
   }>;
+  stock_consumptions?: KassStockConsumption[];
   status?: "active" | "returned";
   created_at: string;
   returned_at?: string;
@@ -445,6 +446,26 @@ export function getOrders(sessionId: string) {
   const state = readState();
   getSessionFromState(state, sessionId);
   return state.orders.get(sessionId) ?? [];
+}
+
+export function getAllOrders(options?: { start?: string; end?: string; status?: "active" | "returned" | "all" }) {
+  const state = readState();
+  const status = options?.status ?? "active";
+  const startTime = options?.start ? new Date(options.start).getTime() : null;
+  const endTime = options?.end ? new Date(options.end).getTime() : null;
+
+  return Array.from(state.orders.values())
+    .flat()
+    .filter((order) => {
+      if (status !== "all" && (order.status ?? "active") !== status) return false;
+
+      const createdTime = new Date(order.created_at).getTime();
+      if (startTime !== null && createdTime < startTime) return false;
+      if (endTime !== null && createdTime > endTime) return false;
+
+      return true;
+    })
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
 export function getOrderByReference(reference: string) {

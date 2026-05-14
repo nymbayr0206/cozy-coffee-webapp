@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { jsonError, KassServerError } from "@/lib/kass/errors";
-import { consumeOdooRecipeStock, createOdooSaleOrder, linkOdooQpayTransactionToSaleOrder } from "@/lib/kass/odoo";
+import {
+  consumeOdooRecipeStock,
+  createOdooSaleOrder,
+  linkOdooQpayTransactionToSaleOrder,
+  previewOdooRecipeStockConsumption,
+} from "@/lib/kass/odoo";
 import { addOrder, assertSessionOpen, nextReceiptNumber } from "@/lib/kass/store";
 import {
   parsePaymentParts,
@@ -52,6 +57,7 @@ export async function POST(request: Request) {
 
     assertSessionOpen(sessionId);
 
+    const stockConsumptions = await previewOdooRecipeStockConsumption(lines);
     await consumeOdooRecipeStock(lines);
     const odooOrderId = await createOdooSaleOrder(lines, paymentMethod, payments, partnerId);
     if (qpayTransactionId && typeof odooOrderId === "number") {
@@ -69,6 +75,7 @@ export async function POST(request: Request) {
       partner_name: partnerName,
       total,
       lines,
+      stock_consumptions: stockConsumptions,
       created_at: new Date().toISOString(),
     });
 
