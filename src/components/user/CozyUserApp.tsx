@@ -243,6 +243,7 @@ export function CozyUserApp() {
   const remaining = Math.max(STAMP_TARGET - stamps, 0);
   const progress = useMemo(() => (stamps / STAMP_TARGET) * 100, [stamps]);
   const activeCoupons = useMemo(() => coupons.filter((coupon) => coupon.state === "available"), [coupons]);
+  const phonePushActive = Boolean(profile?.push_enabled) && pushPermission === "granted";
 
   useEffect(() => {
     window.localStorage.removeItem("cozy.user.stamps");
@@ -272,9 +273,9 @@ export function CozyUserApp() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+    const supported = window.isSecureContext && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
     setPushSupported(supported);
-    if (supported) setPushPermission(Notification.permission);
+    if ("Notification" in window) setPushPermission(Notification.permission);
   }, []);
 
   useEffect(() => {
@@ -552,23 +553,30 @@ export function CozyUserApp() {
     if (!profile?.member_id) return;
     setPushUpdating(true);
     setMessage("");
+    setNotificationNotice("");
 
     try {
       if (!pushSupported) {
-        setMessage("Таны browser утасны notification дэмжихгүй байна.");
+        const notice = "Notification асаахад HTTPS эсвэл localhost шаардлагатай.";
+        setMessage(notice);
+        setNotificationNotice(notice);
         return;
       }
 
       const permission = await Notification.requestPermission();
       setPushPermission(permission);
       if (permission !== "granted") {
-        setMessage("Notification зөвшөөрөл өгөөгүй байна.");
+        const notice = "Notification зөвшөөрөл өгөөгүй байна.";
+        setMessage(notice);
+        setNotificationNotice(notice);
         return;
       }
 
       const keyResponse = await cozyPushRequest<{ ok: boolean; public_key: string; configured: boolean }>("/public-key");
       if (!keyResponse.configured || !keyResponse.public_key) {
-        setMessage("Push notification серверийн түлхүүр тохируулагдаагүй байна.");
+        const notice = "Push notification серверийн түлхүүр тохируулагдаагүй байна.";
+        setMessage(notice);
+        setNotificationNotice(notice);
         return;
       }
 
@@ -592,8 +600,11 @@ export function CozyUserApp() {
       setProfile(nextProfile);
       window.localStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
       setMessage("Утасны notification идэвхжлээ.");
+      setNotificationNotice("Утасны notification идэвхжлээ.");
     } catch (error) {
-      setMessage(friendlyUserError(error, "Утасны notification идэвхжүүлж чадсангүй."));
+      const notice = friendlyUserError(error, "Утасны notification идэвхжүүлж чадсангүй.");
+      setMessage(notice);
+      setNotificationNotice(notice);
     } finally {
       setPushUpdating(false);
     }
@@ -603,6 +614,7 @@ export function CozyUserApp() {
     if (!profile?.member_id) return;
     setPushUpdating(true);
     setMessage("");
+    setNotificationNotice("");
 
     try {
       const registration = await navigator.serviceWorker.getRegistration("/cozy-sw.js");
@@ -619,8 +631,11 @@ export function CozyUserApp() {
       setProfile(nextProfile);
       window.localStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
       setMessage("Утасны notification унтарлаа.");
+      setNotificationNotice("Утасны notification унтарлаа.");
     } catch (error) {
-      setMessage(friendlyUserError(error, "Утасны notification унтрааж чадсангүй."));
+      const notice = friendlyUserError(error, "Утасны notification унтрааж чадсангүй.");
+      setMessage(notice);
+      setNotificationNotice(notice);
     } finally {
       setPushUpdating(false);
     }
@@ -894,17 +909,17 @@ export function CozyUserApp() {
                 <strong>Утасны notification</strong>
                 <span>
                   {pushSupported
-                    ? profile.push_enabled
+                    ? phonePushActive
                       ? "Lock screen дээр мэдэгдэл ирнэ."
                       : "Allow өгөөд утсан дээрээ мэдэгдэл авна."
                     : "Энэ browser push notification дэмжихгүй байна."}
                 </span>
               </div>
               <button
-                className={profile.push_enabled ? "user-toggle active" : "user-toggle"}
+                className={phonePushActive ? "user-toggle active" : "user-toggle"}
                 type="button"
-                aria-pressed={Boolean(profile.push_enabled)}
-                onClick={() => void (profile.push_enabled ? disablePhonePush() : enablePhonePush())}
+                aria-pressed={phonePushActive}
+                onClick={() => void (phonePushActive ? disablePhonePush() : enablePhonePush())}
                 disabled={pushUpdating || !pushSupported || pushPermission === "denied"}
               >
                 <span />
@@ -963,6 +978,30 @@ export function CozyUserApp() {
                   <X size={18} aria-hidden="true" />
                 </button>
               </header>
+
+              <article className={phonePushActive ? "notification-permission-card active" : "notification-permission-card"}>
+                <div className="notification-permission-icon">
+                  <Bell size={19} aria-hidden="true" />
+                </div>
+                <div>
+                  <strong>{phonePushActive ? "Утасны notification асаалттай" : "Утсан дээр мэдэгдэл авах"}</strong>
+                  <span>
+                    {phonePushActive
+                      ? "Урамшуулал, купон болон тамганы сануулга lock screen дээр ирнэ."
+                      : pushPermission === "denied"
+                        ? "Browser дээр notification block хийсэн байна. Site settings дотроос зөвшөөрнө үү."
+                        : "Allow дарснаар урамшуулал, купон болон тамганы сануулга шууд ирнэ."}
+                  </span>
+                </div>
+                <button
+                  className="user-primary-button compact"
+                  type="button"
+                  onClick={() => void (phonePushActive ? disablePhonePush() : enablePhonePush())}
+                  disabled={pushUpdating || !pushSupported || pushPermission === "denied"}
+                >
+                  {pushUpdating ? "Түр хүлээнэ үү" : phonePushActive ? "Унтраах" : "Асаах"}
+                </button>
+              </article>
 
               <div className="notification-actions">
                 <button className="user-secondary-button compact" type="button" onClick={() => void refreshNotifications(undefined, { quiet: false })} disabled={notificationLoading}>
