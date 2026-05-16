@@ -354,8 +354,11 @@ export interface OdooLoginResponse {
     user_id: number;
     name: string;
     login: string;
+    role?: KassUserRole;
   };
 }
+
+export type KassUserRole = "admin" | "barista";
 
 export interface OpenSessionRequest {
   cashier_name: string;
@@ -489,6 +492,9 @@ export interface SalesProductSummary {
   category?: string | null;
   quantity: number;
   total: number;
+  unit_cost?: number;
+  total_cost?: number;
+  net_profit?: number;
   orders_count: number;
   average_price: number;
 }
@@ -507,6 +513,9 @@ export interface SalesReportResponse {
   credit_total: number;
   coupon_total?: number;
   other_total: number;
+  cost_total: number;
+  net_profit: number;
+  profit_margin: number;
   orders_count: number;
   average_order: number;
   average_hourly_sales: number;

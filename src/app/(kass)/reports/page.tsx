@@ -116,6 +116,10 @@ function formatQuantity(quantity: number) {
     : quantity.toLocaleString("mn-MN", { maximumFractionDigits: 3 });
 }
 
+function formatPercent(value: number | null | undefined) {
+  return `${(Number(value ?? 0) * 100).toLocaleString("mn-MN", { maximumFractionDigits: 1 })}%`;
+}
+
 function makeBuckets(orders: KassOrderSummary[], period: SalesReportPeriod, start: Date, end: Date) {
   const bucketStarts: Date[] = [];
 
@@ -322,6 +326,18 @@ export default function ReportsPage() {
           <div className="metric strong-metric">
             <span>Нийт борлуулалт</span>
             <strong>{formatMoney(report?.total_sales)}</strong>
+          </div>
+          <div className="metric strong-metric">
+            <span>Цэвэр ашиг</span>
+            <strong>{formatMoney(report?.net_profit)}</strong>
+          </div>
+          <div className="metric">
+            <span>Барааны өртөг</span>
+            <strong>{formatMoney(report?.cost_total)}</strong>
+          </div>
+          <div className="metric">
+            <span>Ашгийн хувь</span>
+            <strong>{formatPercent(report?.profit_margin)}</strong>
           </div>
           <div className="metric">
             <span>Захиалга</span>
@@ -624,6 +640,8 @@ export default function ReportsPage() {
                   <th>Бараа бүтээгдэхүүн</th>
                   <th>Зарагдсан тоо</th>
                   <th>Нийт дүн</th>
+                  <th>Нийт өртөг</th>
+                  <th>Цэвэр ашиг</th>
                   <th>Дундаж үнэ</th>
                   <th>Захиалга</th>
                 </tr>
@@ -637,6 +655,8 @@ export default function ReportsPage() {
                     </td>
                     <td>{formatQuantity(product.quantity)} ш</td>
                     <td>{formatMoney(product.total)}</td>
+                    <td>{formatMoney(product.total_cost)}</td>
+                    <td>{formatMoney(product.net_profit)}</td>
                     <td>{formatMoney(product.average_price)}</td>
                     <td>{product.orders_count}</td>
                   </tr>

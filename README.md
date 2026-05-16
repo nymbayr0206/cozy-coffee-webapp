@@ -23,6 +23,9 @@ ODOO_DEFAULT_PARTNER_ID=1
 ODOO_PRODUCT_MODEL=product.product
 ODOO_PRODUCT_FILTER_FIELD=sale_ok
 KASS_STORE_PATH=./data/kass-store.json
+# Optional app role mapping. Values can match the Odoo login or user name.
+KASS_BARISTA_USERS=uranbaigal,Uranbaigal,Янжинлхам
+KASS_ADMIN_USERS=bolormaa,Bolormaa,eenee,Eenee,Ээнээ
 ```
 
 Restart Next.js after changing `.env`.

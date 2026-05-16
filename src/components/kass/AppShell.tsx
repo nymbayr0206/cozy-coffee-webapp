@@ -39,7 +39,7 @@ import {
   normalizeReport,
   openKassSession,
 } from "@/lib/kass/client-api";
-import type { CloseSessionResponse, KassReport, OpenSessionResponse } from "@/lib/kass/client-types";
+import type { CloseSessionResponse, KassReport, KassUserRole, OpenSessionResponse } from "@/lib/kass/client-types";
 import { LoginModal, type LoginPayload } from "./LoginModal";
 import { SessionModal, type OpenSessionPayload } from "./SessionModal";
 import { SessionSummary } from "./SessionSummary";
@@ -63,21 +63,38 @@ const CASHIER_NAME_KEY = "kass.cashier_name";
 const ODOO_USER_ID_KEY = "kass.odoo_user_id";
 const ODOO_LOGIN_KEY = "kass.odoo_login";
 const ODOO_USER_NAME_KEY = "kass.odoo_user_name";
+const ODOO_USER_ROLE_KEY = "kass.odoo_user_role";
 
 const navItems = [
-  { href: "/pos", label: "Касс", icon: ShoppingCart },
-  { href: "/dashboard", label: "Хянах самбар", icon: LayoutDashboard },
-  { href: "/products", label: "Бүтээгдэхүүн", icon: Boxes },
-  { href: "/warehouse", label: "Агуулах", icon: Warehouse },
-  { href: "/partners", label: "Харилцагч", icon: Users },
-  { href: "/finance", label: "Өглөг/Авлага", icon: CircleDollarSign },
-  { href: "/sales", label: "Борлуулалт", icon: ReceiptText },
-  { href: "/reports", label: "Тайлан", icon: BarChart3 },
-  { href: "/settings", label: "Тохиргоо", icon: Settings },
-];
+  { href: "/pos", label: "Касс", icon: ShoppingCart, roles: ["admin", "barista"] },
+  { href: "/dashboard", label: "Хянах самбар", icon: LayoutDashboard, roles: ["admin"] },
+  { href: "/products", label: "Бүтээгдэхүүн", icon: Boxes, roles: ["admin", "barista"] },
+  { href: "/warehouse", label: "Агуулах", icon: Warehouse, roles: ["admin", "barista"] },
+  { href: "/partners", label: "Харилцагч", icon: Users, roles: ["admin", "barista"] },
+  { href: "/finance", label: "Өглөг/Авлага", icon: CircleDollarSign, roles: ["admin", "barista"] },
+  { href: "/sales", label: "Борлуулалт", icon: ReceiptText, roles: ["admin"] },
+  { href: "/reports", label: "Тайлан", icon: BarChart3, roles: ["admin"] },
+  { href: "/settings", label: "Тохиргоо", icon: Settings, roles: ["admin"] },
+] satisfies Array<{
+  href: string;
+  label: string;
+  icon: typeof ShoppingCart;
+  roles: KassUserRole[];
+}>;
 
 function extractSessionId(response: OpenSessionResponse) {
   return response.session_id ?? response.session?.session_id ?? response.session?.id ?? null;
+}
+
+function normalizeRole(value: string | null | undefined): KassUserRole {
+  return value === "barista" ? "barista" : "admin";
+}
+
+function inferStoredRole(login: string | null, name: string | null, storedRole: string | null) {
+  if (storedRole) return normalizeRole(storedRole);
+
+  const source = `${login ?? ""} ${name ?? ""}`.toLowerCase();
+  return source.includes("barista") ? "barista" : "admin";
 }
 
 export function useKassSession() {
@@ -97,6 +114,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [cashierName, setCashierName] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
   const [userLogin, setUserLogin] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<KassUserRole>("admin");
   const [odooUserId, setOdooUserId] = useState<string | null>(null);
   const [report, setReport] = useState<KassReport | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
@@ -117,6 +135,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const isAuthenticated = Boolean(userName && userLogin && odooUserId);
   const isPosRoute = pathname === "/pos";
   const activeCashierName = cashierName ?? userName;
+  const visibleNavItems = navItems.filter((item) => item.roles.includes(userRole));
+  const canAccessCurrentRoute = !isAuthenticated || navItems.find((item) => item.href === pathname)?.roles.includes(userRole) !== false;
 
   const clearStoredSession = useCallback(() => {
     window.localStorage.removeItem(SESSION_ID_KEY);
@@ -131,8 +151,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     window.localStorage.removeItem(ODOO_USER_ID_KEY);
     window.localStorage.removeItem(ODOO_LOGIN_KEY);
     window.localStorage.removeItem(ODOO_USER_NAME_KEY);
+    window.localStorage.removeItem(ODOO_USER_ROLE_KEY);
     setUserName(null);
     setUserLogin(null);
+    setUserRole("admin");
     setOdooUserId(null);
     setLoginError(null);
     setSessionError(null);
@@ -214,6 +236,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     const storedUserId = window.localStorage.getItem(ODOO_USER_ID_KEY);
     const storedLogin = window.localStorage.getItem(ODOO_LOGIN_KEY);
     const storedUserName = window.localStorage.getItem(ODOO_USER_NAME_KEY) ?? storedCashierName;
+    const storedRole = inferStoredRole(storedLogin, storedUserName, window.localStorage.getItem(ODOO_USER_ROLE_KEY));
     const hasAuth = Boolean(storedUserId && storedLogin && storedUserName);
 
     setSessionId(storedSessionId);
@@ -221,6 +244,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     setOdooUserId(storedUserId);
     setUserLogin(storedLogin);
     setUserName(storedUserName);
+    setUserRole(storedRole);
     setLoginModalOpen(!hasAuth);
     setSessionModalOpen(false);
     setHydrated(true);
@@ -261,13 +285,16 @@ export function AppShell({ children }: { children: ReactNode }) {
         password: payload.password,
       });
       const nextUserName = login.user.name || login.user.login || payload.username;
+      const nextRole = normalizeRole(login.user.role);
 
       window.localStorage.setItem(ODOO_USER_ID_KEY, String(login.user.user_id));
       window.localStorage.setItem(ODOO_LOGIN_KEY, login.user.login);
       window.localStorage.setItem(ODOO_USER_NAME_KEY, nextUserName);
+      window.localStorage.setItem(ODOO_USER_ROLE_KEY, nextRole);
       setOdooUserId(String(login.user.user_id));
       setUserLogin(login.user.login);
       setUserName(nextUserName);
+      setUserRole(nextRole);
       setLoginModalOpen(false);
       setSessionModalOpen(false);
       setCloseResult(null);
@@ -420,7 +447,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     Number(normalizedReport?.opening_cash ?? 0) + Number(normalizedReport?.cash_total ?? 0);
   const shouldShowLoginModal = hydrated && loginModalOpen && !closeResult;
   const shouldShowSessionModal = hydrated && isPosRoute && isAuthenticated && sessionModalOpen && !closeResult;
-  const topbarStatusLabel = isAuthenticated ? "Нэвтэрсэн" : "Нэвтрэх шаардлагатай";
+  const roleLabel = userRole === "barista" ? "Barista" : "Админ";
+  const topbarStatusLabel = isAuthenticated ? `Нэвтэрсэн · ${roleLabel}` : "Нэвтрэх шаардлагатай";
   const topbarStatusClass = isAuthenticated ? "status-pill success" : "status-pill muted";
 
   return (
@@ -436,7 +464,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
 
           <nav className="side-nav" aria-label="Үндсэн цэс">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const Icon = item.icon;
               const active = pathname === item.href;
 
@@ -522,7 +550,21 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           ) : null}
 
-          <main className="content-area">{children}</main>
+          <main className="content-area">
+            {canAccessCurrentRoute ? (
+              children
+            ) : (
+              <section className="content-panel">
+                <div className="compact-empty">
+                  <CircleDollarSign size={22} aria-hidden="true" />
+                  <span>Энэ цонхонд barista эрхээр нэвтрэх боломжгүй байна.</span>
+                  <Link className="primary-button" href={visibleNavItems[0]?.href ?? "/pos"}>
+                    <span>Касс руу очих</span>
+                  </Link>
+                </div>
+              </section>
+            )}
+          </main>
         </div>
       </div>
 

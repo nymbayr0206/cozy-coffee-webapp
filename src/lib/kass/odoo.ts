@@ -1,5 +1,5 @@
 import { KassServerError } from "./errors";
-import type { PaymentPart } from "./client-types";
+import type { KassUserRole, PaymentPart } from "./client-types";
 
 interface OdooConfig {
   url: string;
@@ -142,6 +142,8 @@ interface OdooSaleOrderLineRecord {
   price_total?: number;
   price_subtotal?: number;
   price_unit?: number;
+  purchase_price?: number;
+  margin?: number;
   display_type?: string | false;
 }
 
@@ -251,6 +253,9 @@ interface OdooJsonRpcResponse<T> {
 }
 
 let cachedUid: number | null = null;
+
+const DEFAULT_BARISTA_USERS = ["uranbaigal", "уранбайгал", "янжинлхам"];
+const DEFAULT_ADMIN_USERS = ["bolormaa", "болормаа", "eenee", "ээнээ"];
 
 function getOdooConfig(): OdooConfig {
   const missing = [
@@ -903,7 +908,29 @@ export async function loginOdooUser(username: string, password: string) {
     user_id: uid,
     name: user?.name ?? username,
     login: user?.login ?? username,
+    role: resolveKassUserRole(user?.login ?? username, user?.name ?? username),
   };
+}
+
+function splitRoleList(value: string | undefined, defaults: string[] = []) {
+  return new Set(
+    [...defaults, ...String(value ?? "").split(",")]
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+function resolveKassUserRole(login: string, name: string): KassUserRole {
+  const normalizedLogin = login.trim().toLowerCase();
+  const normalizedName = name.trim().toLowerCase();
+  const adminUsers = splitRoleList(process.env.KASS_ADMIN_USERS ?? process.env.KASS_ADMIN_LOGINS, DEFAULT_ADMIN_USERS);
+  const baristaUsers = splitRoleList(process.env.KASS_BARISTA_USERS ?? process.env.KASS_BARISTA_LOGINS, DEFAULT_BARISTA_USERS);
+
+  if (adminUsers.has(normalizedLogin) || adminUsers.has(normalizedName)) return "admin";
+  if (baristaUsers.has(normalizedLogin) || baristaUsers.has(normalizedName)) return "barista";
+
+  const roleSource = `${normalizedLogin} ${normalizedName}`;
+  return roleSource.includes("barista") ? "barista" : "admin";
 }
 
 export async function fetchOdooProducts(options: { scope?: "pos" | "all" | "hidden" | "production" | "stock" } = {}) {
@@ -2554,7 +2581,27 @@ async function getProductCategoryMap(config: OdooConfig, uid: number, productIds
   return categoryByProduct;
 }
 
-function summarizeSaleOrderLines(lines: OdooSaleOrderLineRecord[], categoryByProduct = new Map<number, string | null>()) {
+async function getProductCostMap(config: OdooConfig, uid: number, productIds: number[]) {
+  const uniqueProductIds = Array.from(new Set(productIds.filter((productId) => productId > 0)));
+  if (uniqueProductIds.length === 0) return new Map<number, number>();
+
+  const productFields = await getFieldNames(config, uid, "product.product");
+  const productReadFields = ["id", "standard_price"].filter((field) => productFields.has(field));
+  if (!productFields.has("standard_price")) return new Map<number, number>();
+
+  const products = await executeKw<OdooProductRecord[]>(config, uid, "product.product", "read", [
+    uniqueProductIds,
+    productReadFields,
+  ]);
+
+  return new Map(products.map((product) => [product.id, Number(product.standard_price ?? 0)]));
+}
+
+function summarizeSaleOrderLines(
+  lines: OdooSaleOrderLineRecord[],
+  categoryByProduct = new Map<number, string | null>(),
+  costByProduct = new Map<number, number>(),
+) {
   const byProduct = new Map<
     number,
     {
@@ -2563,6 +2610,7 @@ function summarizeSaleOrderLines(lines: OdooSaleOrderLineRecord[], categoryByPro
       category: string | null;
       quantity: number;
       total: number;
+      totalCost: number;
       orderIds: Set<number>;
     }
   >();
@@ -2585,11 +2633,22 @@ function summarizeSaleOrderLines(lines: OdooSaleOrderLineRecord[], categoryByPro
         category: categoryByProduct.get(productId) ?? null,
         quantity: 0,
         total: 0,
+        totalCost: 0,
         orderIds: new Set<number>(),
       };
 
+    const lineTotal = Number.isFinite(total) ? total : 0;
+    const purchasePrice = Number(line.purchase_price);
+    const lineMargin = Number(line.margin);
+    const lineCost = Number.isFinite(purchasePrice)
+      ? purchasePrice * quantity
+      : Number.isFinite(lineMargin)
+        ? lineTotal - lineMargin
+        : Number(costByProduct.get(productId) ?? 0) * quantity;
+
     current.quantity += quantity;
-    current.total += Number.isFinite(total) ? total : 0;
+    current.total += lineTotal;
+    current.totalCost += Number.isFinite(lineCost) ? lineCost : 0;
     const orderId = relationId(line.order_id);
     if (orderId) current.orderIds.add(orderId);
     byProduct.set(productId, current);
@@ -2602,6 +2661,9 @@ function summarizeSaleOrderLines(lines: OdooSaleOrderLineRecord[], categoryByPro
       category: product.category,
       quantity: Math.round(product.quantity * 1000) / 1000,
       total: Math.round(product.total * 100) / 100,
+      unit_cost: product.quantity > 0 ? product.totalCost / product.quantity : 0,
+      total_cost: Math.round(product.totalCost * 100) / 100,
+      net_profit: Math.round((product.total - product.totalCost) * 100) / 100,
       orders_count: product.orderIds.size,
       average_price: product.quantity > 0 ? product.total / product.quantity : 0,
     }))
@@ -2654,6 +2716,8 @@ export async function getOdooSalesReport(startIso: string, endIso: string) {
     "price_total",
     "price_subtotal",
     "price_unit",
+    "purchase_price",
+    "margin",
     "display_type",
   ].filter((field) => saleOrderLineFields.has(field));
   const orderLines =
@@ -2675,7 +2739,8 @@ export async function getOdooSalesReport(startIso: string, endIso: string) {
     .map((line) => relationId(line.product_id))
     .filter((productId): productId is number => Boolean(productId));
   const categoryByProduct = await getProductCategoryMap(config, uid, saleProductIds);
-  const products = summarizeSaleOrderLines(orderLines, categoryByProduct);
+  const costByProduct = await getProductCostMap(config, uid, saleProductIds);
+  const products = summarizeSaleOrderLines(orderLines, categoryByProduct, costByProduct);
 
   const orders = records.map((record) => {
     const total = Number(record.amount_total ?? 0);
@@ -2738,11 +2803,17 @@ export async function getOdooSalesReport(startIso: string, endIso: string) {
       orders_count: 0,
     },
   );
+  const cost_total = Math.round(products.reduce((sum, product) => sum + Number(product.total_cost ?? 0), 0) * 100) / 100;
+  const net_profit = Math.round((totals.total_sales - cost_total) * 100) / 100;
+  const profit_margin = totals.total_sales > 0 ? net_profit / totals.total_sales : 0;
 
   return {
     start: startIso,
     end: endIso,
     ...totals,
+    cost_total,
+    net_profit,
+    profit_margin,
     average_order: totals.orders_count > 0 ? totals.total_sales / totals.orders_count : 0,
     orders,
     products,
