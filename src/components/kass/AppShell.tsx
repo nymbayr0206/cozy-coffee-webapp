@@ -72,7 +72,7 @@ const navItems = [
   { href: "/warehouse", label: "Агуулах", icon: Warehouse, roles: ["admin", "barista"] },
   { href: "/partners", label: "Харилцагч", icon: Users, roles: ["admin", "barista"] },
   { href: "/finance", label: "Өглөг/Авлага", icon: CircleDollarSign, roles: ["admin", "barista"] },
-  { href: "/sales", label: "Борлуулалт", icon: ReceiptText, roles: ["admin"] },
+  { href: "/sales", label: "Борлуулалт", icon: ReceiptText, roles: ["admin", "barista"] },
   { href: "/reports", label: "Тайлан", icon: BarChart3, roles: ["admin"] },
   { href: "/settings", label: "Тохиргоо", icon: Settings, roles: ["admin"] },
 ] satisfies Array<{
