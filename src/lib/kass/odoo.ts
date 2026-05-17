@@ -81,6 +81,9 @@ interface OdooUomRecord {
   display_name?: string;
   category_id?: [number, string] | false;
   uom_type?: string | false;
+  factor?: number;
+  factor_inv?: number;
+  relative_factor?: number;
   active?: boolean;
 }
 
@@ -2581,20 +2584,167 @@ async function getProductCategoryMap(config: OdooConfig, uid: number, productIds
   return categoryByProduct;
 }
 
-async function getProductCostMap(config: OdooConfig, uid: number, productIds: number[]) {
+async function readProductCostRecords(config: OdooConfig, uid: number, productIds: number[]) {
   const uniqueProductIds = Array.from(new Set(productIds.filter((productId) => productId > 0)));
-  if (uniqueProductIds.length === 0) return new Map<number, number>();
+  if (uniqueProductIds.length === 0) return [];
 
   const productFields = await getFieldNames(config, uid, "product.product");
-  const productReadFields = ["id", "standard_price"].filter((field) => productFields.has(field));
-  if (!productFields.has("standard_price")) return new Map<number, number>();
+  const productReadFields = ["id", "standard_price", "product_tmpl_id", "uom_id"].filter((field) =>
+    productFields.has(field),
+  );
+  if (!productFields.has("standard_price")) return [];
 
-  const products = await executeKw<OdooProductRecord[]>(config, uid, "product.product", "read", [
+  return executeKw<OdooProductRecord[]>(config, uid, "product.product", "read", [
     uniqueProductIds,
     productReadFields,
   ]);
+}
 
-  return new Map(products.map((product) => [product.id, Number(product.standard_price ?? 0)]));
+async function readUomMap(config: OdooConfig, uid: number, uomIds: number[]) {
+  const uniqueUomIds = Array.from(new Set(uomIds.filter((uomId) => uomId > 0)));
+  if (uniqueUomIds.length === 0) return new Map<number, OdooUomRecord>();
+
+  const uomFields = await getFieldNames(config, uid, "uom.uom");
+  const readFields = ["id", "factor", "factor_inv", "relative_factor"].filter((field) => uomFields.has(field));
+  const records = await executeKw<OdooUomRecord[]>(config, uid, "uom.uom", "read", [uniqueUomIds, readFields]);
+
+  return new Map(records.map((record) => [record.id, record]));
+}
+
+function uomFactor(record: OdooUomRecord | undefined) {
+  const factor = Number(record?.factor ?? record?.relative_factor);
+  if (Number.isFinite(factor) && factor > 0) return factor;
+
+  const factorInv = Number(record?.factor_inv);
+  return Number.isFinite(factorInv) && factorInv > 0 ? 1 / factorInv : null;
+}
+
+function convertQuantityBetweenUoms(
+  quantity: number,
+  fromUomId: number | null,
+  toUomId: number | null,
+  uomById: Map<number, OdooUomRecord>,
+) {
+  if (!fromUomId || !toUomId || fromUomId === toUomId) return quantity;
+
+  const fromFactor = uomFactor(uomById.get(fromUomId));
+  const toFactor = uomFactor(uomById.get(toUomId));
+  if (!fromFactor || !toFactor) return quantity;
+
+  return (quantity * fromFactor) / toFactor;
+}
+
+async function getRecipeUnitCostMap(
+  config: OdooConfig,
+  uid: number,
+  products: OdooProductRecord[],
+  componentCostByProduct = new Map<number, number>(),
+) {
+  const recipes: Array<{
+    productId: number;
+    productUomId: number | null;
+    bomUomId: number | null;
+    producedQuantity: number;
+    lines: OdooBomLineRecord[];
+  }> = [];
+  const componentIds = new Set<number>();
+  const productById = new Map(products.map((product) => [product.id, product]));
+
+  for (const product of products) {
+    const templateId = relationId(product.product_tmpl_id);
+    if (!templateId) continue;
+
+    const bom = await readPrimaryBom(config, uid, product.id, templateId);
+    if (!bom) continue;
+
+    const lines = await readBomLines(config, uid, bom.id);
+    if (lines.length === 0) continue;
+
+    lines.forEach((line) => {
+      const componentId = relationId(line.product_id);
+      if (componentId) componentIds.add(componentId);
+    });
+
+    recipes.push({
+      productId: product.id,
+      productUomId: relationId(product.uom_id),
+      bomUomId: relationId(bom.product_uom_id),
+      producedQuantity: Math.max(1, Number(bom.product_qty ?? 1)),
+      lines,
+    });
+  }
+
+  const missingComponentIds = Array.from(componentIds).filter((componentId) => !componentCostByProduct.has(componentId));
+  if (missingComponentIds.length > 0) {
+    const componentProducts = await readProductCostRecords(config, uid, missingComponentIds);
+    componentProducts.forEach((component) => {
+      componentCostByProduct.set(component.id, Number(component.standard_price ?? 0));
+      productById.set(component.id, component);
+    });
+  }
+
+  const uomIds = new Set<number>();
+  recipes.forEach((recipe) => {
+    if (recipe.productUomId) uomIds.add(recipe.productUomId);
+    if (recipe.bomUomId) uomIds.add(recipe.bomUomId);
+    recipe.lines.forEach((line) => {
+      const lineUomId = relationId(line.product_uom_id);
+      const componentUomId = relationId(productById.get(relationId(line.product_id) ?? 0)?.uom_id);
+      if (lineUomId) uomIds.add(lineUomId);
+      if (componentUomId) uomIds.add(componentUomId);
+    });
+  });
+  const uomById = await readUomMap(config, uid, Array.from(uomIds));
+
+  const costByProduct = new Map<number, number>();
+  recipes.forEach((recipe) => {
+    const totalCost = recipe.lines.reduce((sum, line) => {
+      const componentId = relationId(line.product_id);
+      if (!componentId) return sum;
+
+      const rawQuantity = Number(line.product_qty ?? 0);
+      const quantity = convertQuantityBetweenUoms(
+        rawQuantity,
+        relationId(line.product_uom_id),
+        relationId(productById.get(componentId)?.uom_id),
+        uomById,
+      );
+      const unitCost = Number(componentCostByProduct.get(componentId) ?? 0);
+      return sum + (Number.isFinite(quantity) && Number.isFinite(unitCost) ? quantity * unitCost : 0);
+    }, 0);
+
+    const producedQuantity = convertQuantityBetweenUoms(
+      recipe.producedQuantity,
+      recipe.bomUomId,
+      recipe.productUomId,
+      uomById,
+    );
+    if (totalCost > 0) {
+      costByProduct.set(recipe.productId, totalCost / Math.max(1, producedQuantity));
+    }
+  });
+
+  return costByProduct;
+}
+
+async function getProductCostMap(config: OdooConfig, uid: number, productIds: number[], modules: Record<string, string>) {
+  const products = await readProductCostRecords(config, uid, productIds);
+  const costByProduct = new Map(products.map((product) => [product.id, Number(product.standard_price ?? 0)]));
+
+  if (modules.mrp === "installed") {
+    const recipeCostByProduct = await getRecipeUnitCostMap(config, uid, products, costByProduct);
+    recipeCostByProduct.forEach((unitCost, productId) => {
+      costByProduct.set(productId, unitCost);
+    });
+  }
+
+  return costByProduct;
+}
+
+function odooNumber(value: unknown) {
+  if (value === undefined || value === null || value === false || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function summarizeSaleOrderLines(
@@ -2638,13 +2788,17 @@ function summarizeSaleOrderLines(
       };
 
     const lineTotal = Number.isFinite(total) ? total : 0;
-    const purchasePrice = Number(line.purchase_price);
-    const lineMargin = Number(line.margin);
-    const lineCost = Number.isFinite(purchasePrice)
-      ? purchasePrice * quantity
-      : Number.isFinite(lineMargin)
-        ? lineTotal - lineMargin
-        : Number(costByProduct.get(productId) ?? 0) * quantity;
+    const fallbackUnitCost = Number(costByProduct.get(productId) ?? 0);
+    const purchasePrice = odooNumber(line.purchase_price);
+    const lineMargin = odooNumber(line.margin);
+    const lineCost =
+      purchasePrice !== null && purchasePrice > 0
+        ? purchasePrice * quantity
+        : fallbackUnitCost > 0
+          ? fallbackUnitCost * quantity
+          : lineMargin !== null && lineMargin !== 0
+            ? lineTotal - lineMargin
+            : 0;
 
     current.quantity += quantity;
     current.total += lineTotal;
@@ -2739,7 +2893,7 @@ export async function getOdooSalesReport(startIso: string, endIso: string) {
     .map((line) => relationId(line.product_id))
     .filter((productId): productId is number => Boolean(productId));
   const categoryByProduct = await getProductCategoryMap(config, uid, saleProductIds);
-  const costByProduct = await getProductCostMap(config, uid, saleProductIds);
+  const costByProduct = await getProductCostMap(config, uid, saleProductIds, modules);
   const products = summarizeSaleOrderLines(orderLines, categoryByProduct, costByProduct);
 
   const orders = records.map((record) => {
