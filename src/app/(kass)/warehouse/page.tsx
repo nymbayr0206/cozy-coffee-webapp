@@ -55,6 +55,7 @@ type WarehouseView = "stock" | "receipts" | "receipt-report" | "categories";
 const emptyStockForm = {
   quantity: "1",
   unit_cost: "",
+  uom_id: "",
   partner_id: "",
   payment_method: "credit" as StockReceiptPaymentMethod,
   paid_amount: "",
@@ -168,6 +169,14 @@ function productToWarehouseForm(product: KassProduct) {
 
 function isLowStock(product: KassProduct) {
   return Number(product.qty_available ?? 0) <= 0;
+}
+
+function isSalePointProduct(product: KassProduct) {
+  return product.available_for_sale !== false && Boolean(product.pos_category_ids?.length || product.pos_categories?.length);
+}
+
+function isManufacturedProduct(product: KassProduct) {
+  return product.has_bom === true;
 }
 
 export default function WarehousePage() {
@@ -296,7 +305,7 @@ export default function WarehousePage() {
   }, []);
 
   const stockProducts = useMemo(
-    () => products.filter((product) => product.is_storable === true),
+    () => products.filter((product) => product.is_storable === true && !isSalePointProduct(product) && !isManufacturedProduct(product)),
     [products],
   );
 
@@ -323,6 +332,14 @@ export default function WarehousePage() {
         ),
     [uoms],
   );
+  const stockUomOptions = useMemo(() => {
+    if (!stockProduct) return [];
+
+    const productUom = uomOptions.find((uom) => uom.id === stockProduct.uom_id);
+    if (!productUom?.category_id) return productUom ? [productUom] : [];
+
+    return uomOptions.filter((uom) => uom.category_id === productUom.category_id);
+  }, [stockProduct, uomOptions]);
 
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -434,7 +451,12 @@ export default function WarehousePage() {
       : activeView === "receipts" || activeView === "receipt-report"
         ? filteredReceipts.length
         : filtered.length;
-  const activeStockUnitName = stockProduct ? formatUnitName(stockProduct.uom_name) : "нэгж";
+  const activeStockUom =
+    stockUomOptions.find((uom) => String(uom.id) === stockForm.uom_id) ??
+    stockUomOptions.find((uom) => uom.id === stockProduct?.uom_id);
+  const activeStockUnitName = stockProduct
+    ? formatUnitName(activeStockUom?.display_name ?? stockProduct.uom_name)
+    : "нэгж";
   const stockFormTotalCost =
     Number.isFinite(Number(stockForm.quantity)) && Number.isFinite(Number(stockForm.unit_cost))
       ? Number(stockForm.quantity) * Number(stockForm.unit_cost)
@@ -448,6 +470,7 @@ export default function WarehousePage() {
     setStockProduct(product);
     setStockForm({
       ...emptyStockForm,
+      uom_id: product.uom_id ? String(product.uom_id) : "",
       unit_cost: Number(product.cost_price ?? 0) > 0 ? String(product.cost_price) : "",
     });
     setStockError(null);
@@ -503,6 +526,7 @@ export default function WarehousePage() {
     setReceiptForm({
       quantity: String(receipt.quantity),
       unit_cost: String(receipt.unit_cost),
+      uom_id: receipt.uom_id ? String(receipt.uom_id) : "",
       partner_id: receipt.partner_id ? String(receipt.partner_id) : "",
       payment_method: receipt.payment_method ?? "cash",
       paid_amount: String(inferReceiptPaidAmount(receipt)),
@@ -686,6 +710,7 @@ export default function WarehousePage() {
 
     const quantity = Number(stockForm.quantity);
     const unitCost = Number(stockForm.unit_cost);
+    const uomId = stockForm.uom_id ? Number(stockForm.uom_id) : null;
     const partnerId = stockForm.partner_id ? Number(stockForm.partner_id) : null;
     const totalCost = Math.round(quantity * unitCost * 100) / 100;
     const payment = resolveStockPayment(stockForm, totalCost);
@@ -697,6 +722,11 @@ export default function WarehousePage() {
 
     if (!Number.isFinite(unitCost) || unitCost <= 0) {
       setStockError("Нэгж өртөг 0-ээс их байх ёстой.");
+      return;
+    }
+
+    if (uomId !== null && (!Number.isInteger(uomId) || uomId <= 0)) {
+      setStockError("Хэмжих нэгжийн сонголт буруу байна.");
       return;
     }
 
@@ -717,6 +747,7 @@ export default function WarehousePage() {
       const result = await receiveKassProductStock(stockProduct.id, {
         quantity,
         unit_cost: unitCost,
+        uom_id: uomId,
         partner_id: partnerId,
         ...payment,
         note: stockForm.note.trim() || null,
@@ -1173,8 +1204,8 @@ export default function WarehousePage() {
                         <strong>{receipt.product_name}</strong>
                         <span>{formatDateTime(receipt.created_at)}</span>
                         <div className="warehouse-card-meta">
-                          <span>Тоо: {quantityText(receipt.quantity)}</span>
-                          <span>Нэгж өртөг: {formatMoney(receipt.unit_cost)}</span>
+                          <span>Тоо: {quantityText(receipt.quantity)} {formatUnitName(receipt.uom_name)}</span>
+                          <span>Нэгж өртөг: {formatMoney(receipt.unit_cost)} / {formatUnitName(receipt.uom_name)}</span>
                           <span>Нийт: {formatMoney(receipt.total_cost)}</span>
                           <span>Төлбөр: {stockPaymentLabel(receipt.payment_method ?? (inferReceiptCreditAmount(receipt) > 0 ? "credit" : "cash"))}</span>
                           <span>Бэлэн: {formatMoney(inferReceiptPaidAmount(receipt))}</span>
@@ -1248,8 +1279,8 @@ export default function WarehousePage() {
                             {receipt.note ? <small className="table-subtext">{receipt.note}</small> : null}
                             {receipt.odoo_receipt_name ? <small className="table-subtext">Odoo: {receipt.odoo_receipt_name}</small> : null}
                           </td>
-                          <td>{quantityText(receipt.quantity)}</td>
-                          <td>{formatMoney(receipt.unit_cost)}</td>
+                          <td>{quantityText(receipt.quantity)} {formatUnitName(receipt.uom_name)}</td>
+                          <td>{formatMoney(receipt.unit_cost)} / {formatUnitName(receipt.uom_name)}</td>
                           <td>{formatMoney(receipt.total_cost)}</td>
                           <td>{receipt.partner_name || "Сонгоогүй"}</td>
                           <td>{stockPaymentLabel(receipt.payment_method ?? (inferReceiptCreditAmount(receipt) > 0 ? "credit" : "cash"))}</td>
@@ -2008,6 +2039,27 @@ export default function WarehousePage() {
                   />
                   <b>{activeStockUnitName}</b>
                 </div>
+              </label>
+              <label className="field">
+                <span>Нэгж</span>
+                <select
+                  value={stockForm.uom_id}
+                  onChange={(event) => setStockForm((current) => ({ ...current, uom_id: event.target.value }))}
+                  disabled={uomsLoading || stockUomOptions.length <= 1}
+                  data-testid="stock-uom-select"
+                >
+                  {stockUomOptions.length > 0 ? (
+                    stockUomOptions.map((uom) => (
+                      <option key={uom.id} value={uom.id}>
+                        {formatUnitName(uom.display_name)}
+                      </option>
+                    ))
+                  ) : (
+                    <option value={stockProduct.uom_id ? String(stockProduct.uom_id) : ""}>
+                      {activeStockUnitName}
+                    </option>
+                  )}
+                </select>
               </label>
               <label className="field">
                 <span>Нэгж өртөг</span>

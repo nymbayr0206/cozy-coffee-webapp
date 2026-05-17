@@ -66,13 +66,13 @@ const ODOO_USER_NAME_KEY = "kass.odoo_user_name";
 const ODOO_USER_ROLE_KEY = "kass.odoo_user_role";
 
 const navItems = [
-  { href: "/pos", label: "Касс", icon: ShoppingCart, roles: ["admin", "barista"] },
+  { href: "/pos", label: "Касс", icon: ShoppingCart, roles: ["admin"] },
   { href: "/dashboard", label: "Хянах самбар", icon: LayoutDashboard, roles: ["admin"] },
   { href: "/products", label: "Бүтээгдэхүүн", icon: Boxes, roles: ["admin", "barista"] },
   { href: "/warehouse", label: "Агуулах", icon: Warehouse, roles: ["admin", "barista"] },
-  { href: "/partners", label: "Харилцагч", icon: Users, roles: ["admin", "barista"] },
-  { href: "/finance", label: "Өглөг/Авлага", icon: CircleDollarSign, roles: ["admin", "barista"] },
-  { href: "/sales", label: "Борлуулалт", icon: ReceiptText, roles: ["admin", "barista"] },
+  { href: "/partners", label: "Харилцагч", icon: Users, roles: ["admin"] },
+  { href: "/finance", label: "Өглөг/Авлага", icon: CircleDollarSign, roles: ["admin"] },
+  { href: "/sales", label: "Борлуулалт", icon: ReceiptText, roles: ["admin"] },
   { href: "/reports", label: "Тайлан", icon: BarChart3, roles: ["admin"] },
   { href: "/settings", label: "Тохиргоо", icon: Settings, roles: ["admin"] },
 ] satisfies Array<{
@@ -136,6 +136,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const isPosRoute = pathname === "/pos";
   const activeCashierName = cashierName ?? userName;
   const visibleNavItems = navItems.filter((item) => item.roles.includes(userRole));
+  const firstAllowedNavItem = visibleNavItems[0] ?? navItems[0];
   const canAccessCurrentRoute = !isAuthenticated || navItems.find((item) => item.href === pathname)?.roles.includes(userRole) !== false;
 
   const clearStoredSession = useCallback(() => {
@@ -557,9 +558,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               <section className="content-panel">
                 <div className="compact-empty">
                   <CircleDollarSign size={22} aria-hidden="true" />
-                  <span>Энэ цонхонд barista эрхээр нэвтрэх боломжгүй байна.</span>
-                  <Link className="primary-button" href={visibleNavItems[0]?.href ?? "/pos"}>
-                    <span>Касс руу очих</span>
+                  <span>Энэ цонхонд {roleLabel} эрхээр нэвтрэх боломжгүй байна.</span>
+                  <Link className="primary-button" href={firstAllowedNavItem.href}>
+                    <span>{firstAllowedNavItem.label} руу очих</span>
                   </Link>
                 </div>
               </section>

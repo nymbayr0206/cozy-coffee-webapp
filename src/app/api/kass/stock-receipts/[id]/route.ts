@@ -52,7 +52,12 @@ export async function PATCH(request: Request, context: StockReceiptParams) {
         : Math.trunc(parseNumber(body.partner_id, "partner_id", { min: 1 }));
     const partnerName = typeof body.partner_name === "string" && body.partner_name.trim() ? body.partner_name.trim() : null;
     const note = typeof body.note === "string" && body.note.trim() ? body.note.trim() : null;
-    const quantityDelta = quantity - receipt.quantity;
+    const previousStockQuantity = Number(receipt.stock_quantity ?? receipt.quantity);
+    const stockQuantity =
+      Number(receipt.stock_quantity) > 0 && Number(receipt.quantity) > 0
+        ? (quantity / receipt.quantity) * Number(receipt.stock_quantity)
+        : quantity;
+    const quantityDelta = stockQuantity - previousStockQuantity;
     const totalCost = Math.round(quantity * unitCost * 100) / 100;
     const payment = parseStockReceiptPayment(body, totalCost, {
       payment_method: receipt.payment_method,
@@ -64,6 +69,7 @@ export async function PATCH(request: Request, context: StockReceiptParams) {
     });
     const updated = updateStockReceipt(receiptId, {
       quantity,
+      stock_quantity: stockQuantity,
       unit_cost: unitCost,
       total_cost: totalCost,
       partner_id: partnerId,
@@ -93,7 +99,7 @@ export async function DELETE(_request: Request, context: StockReceiptParams) {
       throw new KassServerError("stock_receipt_returned", "Энэ орлого аль хэдийн буцаагдсан байна.", 409);
     }
 
-    const result = await adjustOdooProductStock(receipt.product_id, -receipt.quantity);
+    const result = await adjustOdooProductStock(receipt.product_id, -Number(receipt.stock_quantity ?? receipt.quantity));
     const returned = returnStockReceipt(receiptId);
 
     return NextResponse.json({

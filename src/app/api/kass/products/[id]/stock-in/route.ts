@@ -15,6 +15,7 @@ interface ProductParams {
 interface StockInBody {
   quantity?: unknown;
   unit_cost?: unknown;
+  uom_id?: unknown;
   partner_id?: unknown;
   payment_method?: unknown;
   paid_amount?: unknown;
@@ -42,6 +43,10 @@ export async function POST(request: Request, context: ProductParams) {
       throw new KassServerError("validation_error", "unit_cost is required", 400);
     }
     const unitCost = parseNumber(body.unit_cost, "unit_cost", { min: 0.000001 });
+    const uomId =
+      body.uom_id === undefined || body.uom_id === null || body.uom_id === ""
+        ? null
+        : Math.trunc(parseNumber(body.uom_id, "uom_id", { min: 1 }));
     const partnerId =
       body.partner_id === undefined || body.partner_id === null || body.partner_id === ""
         ? null
@@ -52,6 +57,7 @@ export async function POST(request: Request, context: ProductParams) {
     const result = await receiveOdooProductStock(productId, {
       quantity,
       unit_cost: unitCost,
+      uom_id: uomId,
       partner_id: partnerId,
       note,
     });
@@ -61,6 +67,11 @@ export async function POST(request: Request, context: ProductParams) {
       quantity,
       unit_cost: unitCost,
       total_cost: totalCost,
+      uom_id: result.uom_id ?? uomId,
+      uom_name: result.uom_name ?? null,
+      stock_quantity: result.stock_quantity_received ?? quantity,
+      stock_uom_id: result.stock_uom_id ?? null,
+      stock_uom_name: result.stock_uom_name ?? null,
       partner_id: result.partner?.id ?? partnerId,
       partner_name: result.partner?.name ?? null,
       ...payment,

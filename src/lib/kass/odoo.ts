@@ -441,15 +441,21 @@ async function getFieldNames(config: OdooConfig, uid: number, model: string) {
   return new Set(Object.keys(fields));
 }
 
-function normalizeProduct(record: OdooProductRecord, isTemplateModel = false, posCategoryMap = new Map<number, string>()) {
+function normalizeProduct(
+  record: OdooProductRecord,
+  isTemplateModel = false,
+  posCategoryMap = new Map<number, string>(),
+  manufacturedProductIds = new Set<number>(),
+) {
   const posCategoryIds = Array.isArray(record.pos_categ_ids) ? record.pos_categ_ids : [];
   const posCategories = posCategoryIds
     .map((categoryId) => posCategoryMap.get(categoryId))
     .filter((categoryName): categoryName is string => Boolean(categoryName));
   const primaryCategory = posCategories[0] ?? (Array.isArray(record.categ_id) ? record.categ_id[1] : null);
+  const productId = isTemplateModel && Array.isArray(record.product_variant_id) ? record.product_variant_id[0] : record.id;
 
   return {
-    id: isTemplateModel && Array.isArray(record.product_variant_id) ? record.product_variant_id[0] : record.id,
+    id: productId,
     name: record.display_name ?? record.name ?? `Product ${record.id}`,
     sale_price: Number(record.lst_price ?? record.list_price ?? 0),
     barcode: record.barcode || null,
@@ -461,6 +467,7 @@ function normalizeProduct(record: OdooProductRecord, isTemplateModel = false, po
     description: record.description_sale || null,
     available_for_sale: record.sale_ok !== false && record.available_in_pos !== false && record.active !== false,
     is_storable: record.is_storable === true || record.type === "product",
+    has_bom: manufacturedProductIds.has(productId),
     cost_price: Number(record.standard_price ?? 0),
     qty_available: Number(record.qty_available ?? 0),
     virtual_available: Number(record.virtual_available ?? record.qty_available ?? 0),
@@ -505,6 +512,7 @@ async function readProduct(config: OdooConfig, uid: number, productId: number) {
     "active",
     "is_storable",
     "type",
+    "product_tmpl_id",
     "qty_available",
     "virtual_available",
     "uom_id",
@@ -664,6 +672,66 @@ async function readBomLines(config: OdooConfig, uid: number, bomId: number) {
     [[["bom_id", "=", bomId]]],
     { fields, limit: 500, order: "id asc" },
   );
+}
+
+async function readManufacturedProductIds(
+  config: OdooConfig,
+  uid: number,
+  records: OdooProductRecord[],
+  isTemplateModel: boolean,
+) {
+  if (records.length === 0) return new Set<number>();
+
+  const productIds = new Set<number>();
+  const templateIds = new Set<number>();
+  const productIdsByTemplate = new Map<number, number[]>();
+
+  records.forEach((record) => {
+    const productId = isTemplateModel ? relationId(record.product_variant_id) : record.id;
+    const templateId = isTemplateModel ? record.id : relationId(record.product_tmpl_id);
+
+    if (productId) productIds.add(productId);
+    if (templateId) {
+      templateIds.add(templateId);
+      if (productId) productIdsByTemplate.set(templateId, [...(productIdsByTemplate.get(templateId) ?? []), productId]);
+    }
+  });
+
+  const bomFields = await getFieldNames(config, uid, "mrp.bom");
+  const domainClauses: unknown[] = [];
+
+  if (bomFields.has("product_id") && productIds.size > 0) {
+    domainClauses.push(["product_id", "in", Array.from(productIds)]);
+  }
+  if (bomFields.has("product_tmpl_id") && templateIds.size > 0) {
+    domainClauses.push(["product_tmpl_id", "in", Array.from(templateIds)]);
+  }
+  if (domainClauses.length === 0) return new Set<number>();
+
+  const domain = domainClauses.length === 1 ? [domainClauses[0]] : ["|", domainClauses[0], domainClauses[1]];
+  const fields = ["id", "product_id", "product_tmpl_id", "bom_line_ids"].filter((field) => bomFields.has(field));
+  const boms = await executeKw<OdooBomRecord[]>(config, uid, "mrp.bom", "search_read", [domain], {
+    fields,
+    limit: 500,
+    order: "id asc",
+  });
+  const manufacturedProductIds = new Set<number>();
+
+  boms.forEach((bom) => {
+    const hasLines = !Array.isArray(bom.bom_line_ids) || bom.bom_line_ids.length > 0;
+    if (!hasLines) return;
+
+    const productId = relationId(bom.product_id);
+    if (productId) {
+      manufacturedProductIds.add(productId);
+      return;
+    }
+
+    const templateId = relationId(bom.product_tmpl_id);
+    productIdsByTemplate.get(templateId ?? 0)?.forEach((id) => manufacturedProductIds.add(id));
+  });
+
+  return manufacturedProductIds;
 }
 
 function normalizeRecipe(product: OdooProductRecord, bom: OdooBomRecord | null, lines: OdooBomLineRecord[], components: Map<number, OdooProductRecord>) {
@@ -1007,9 +1075,12 @@ export async function fetchOdooProducts(options: { scope?: "pos" | "all" | "hidd
       order: "name asc",
     },
   );
+  const manufacturedProductIds =
+    modules.mrp === "installed" ? await readManufacturedProductIds(config, uid, records, isTemplateModel) : new Set<number>();
+  const products = records.map((record) => normalizeProduct(record, isTemplateModel, posCategoryMap, manufacturedProductIds));
 
   return {
-    products: records.map((record) => normalizeProduct(record, isTemplateModel, posCategoryMap)),
+    products: scope === "stock" ? products.filter((product) => product.has_bom !== true) : products,
   };
 }
 
@@ -1967,7 +2038,7 @@ function escapeHtml(value: string) {
 
 async function assertProductIsStorable(config: OdooConfig, uid: number, productId: number) {
   const productFields = await getFieldNames(config, uid, "product.product");
-  const productReadFields = ["id", "name", "display_name", "product_tmpl_id", "is_storable", "type"].filter((field) =>
+  const productReadFields = ["id", "name", "display_name", "product_tmpl_id", "is_storable", "type", "uom_id"].filter((field) =>
     productFields.has(field),
   );
   const records = await executeKw<OdooProductRecord[]>(
@@ -1998,6 +2069,7 @@ export async function receiveOdooProductStock(
   input: {
     quantity: number;
     unit_cost?: number | null;
+    uom_id?: number | null;
     note?: string | null;
     partner_id?: number | null;
   },
@@ -2013,7 +2085,34 @@ export async function receiveOdooProductStock(
   }
 
   try {
-    await assertProductIsStorable(config, uid, productId);
+    const storableProduct = await assertProductIsStorable(config, uid, productId);
+    const stockUomId = relationId(storableProduct.uom_id);
+    const stockUomName = relationName(storableProduct.uom_id);
+    const requestedUomId = input.uom_id ?? stockUomId;
+    const uomById = await readUomMap(
+      config,
+      uid,
+      [stockUomId, requestedUomId].filter((uomId): uomId is number => Boolean(uomId)),
+    );
+    const stockUom = stockUomId ? uomById.get(stockUomId) : undefined;
+    const requestedUom = requestedUomId ? uomById.get(requestedUomId) : undefined;
+
+    if (!stockUomId || !requestedUomId || !stockUom || !requestedUom) {
+      throw new KassServerError("validation_error", "Орлого авах хэмжих нэгж олдсонгүй.", 400);
+    }
+
+    const stockCategoryId = relationId(stockUom?.category_id);
+    const requestedCategoryId = relationId(requestedUom.category_id);
+    if (stockCategoryId && requestedCategoryId && stockCategoryId !== requestedCategoryId) {
+      throw new KassServerError("validation_error", "Барааны үндсэн нэгжтэй ижил ангиллын нэгж сонгоно уу.", 400);
+    }
+
+    const stockQuantity = convertQuantityBetweenUoms(input.quantity, requestedUomId, stockUomId, uomById);
+    const unitCost = Number(input.unit_cost ?? 0);
+    const stockUnitCost =
+      Number.isFinite(unitCost) && unitCost > 0
+        ? convertUnitCostBetweenUoms(unitCost, requestedUomId, stockUomId, uomById)
+        : 0;
 
     const partnerId = Number(input.partner_id ?? 0);
     const partner = Number.isInteger(partnerId) && partnerId > 0 ? await readPartner(config, uid, partnerId) : null;
@@ -2023,20 +2122,20 @@ export async function receiveOdooProductStock(
     if (partner) {
       receipt = await receiveStockWithPartner(config, uid, productId, {
         quantity: input.quantity,
+        uom_id: requestedUomId,
         unit_cost: input.unit_cost,
         note: input.note,
         partner_id: partner.id,
       });
     } else {
-      adjustment = await receiveStockByInventoryAdjustment(config, uid, productId, input.quantity);
+      adjustment = await receiveStockByInventoryAdjustment(config, uid, productId, stockQuantity);
     }
 
-    const unitCost = Number(input.unit_cost ?? 0);
-    if (Number.isFinite(unitCost) && unitCost > 0) {
+    if (stockUnitCost > 0) {
       const templateId = await getProductTemplateId(config, uid, productId);
       const templateFields = await getFieldNames(config, uid, "product.template");
       if (templateFields.has("standard_price")) {
-        await executeKw<boolean>(config, uid, "product.template", "write", [[templateId], { standard_price: unitCost }]);
+        await executeKw<boolean>(config, uid, "product.template", "write", [[templateId], { standard_price: stockUnitCost }]);
       }
     }
 
@@ -2048,6 +2147,11 @@ export async function receiveOdooProductStock(
       product,
       product_id: productId,
       quantity_received: input.quantity,
+      uom_id: requestedUomId,
+      uom_name: requestedUom.display_name ?? requestedUom.name ?? stockUomName,
+      stock_quantity_received: stockQuantity,
+      stock_uom_id: stockUomId,
+      stock_uom_name: stockUomName,
       previous_quantity: adjustment?.previous_quantity ?? null,
       quantity_available: product.qty_available,
       unit_cost: receivedUnitCost,
@@ -2195,6 +2299,7 @@ async function receiveStockWithPartner(
   productId: number,
   input: {
     quantity: number;
+    uom_id: number;
     unit_cost?: number | null;
     note?: string | null;
     partner_id: number;
@@ -2215,9 +2320,10 @@ async function receiveStockWithPartner(
     [[productId], productReadFields],
   );
   const product = products[0];
-  const uomId = Array.isArray(product?.uom_id) ? product.uom_id[0] : null;
+  const productUomId = Array.isArray(product?.uom_id) ? product.uom_id[0] : null;
+  const uomId = input.uom_id || productUomId;
 
-  if (!product || !uomId) {
+  if (!product || !productUomId || !uomId) {
     throw new KassServerError("product_not_found", "Барааны хэмжих нэгж олдсонгүй.", 404);
   }
 
@@ -2605,7 +2711,9 @@ async function readUomMap(config: OdooConfig, uid: number, uomIds: number[]) {
   if (uniqueUomIds.length === 0) return new Map<number, OdooUomRecord>();
 
   const uomFields = await getFieldNames(config, uid, "uom.uom");
-  const readFields = ["id", "factor", "factor_inv", "relative_factor"].filter((field) => uomFields.has(field));
+  const readFields = ["id", "name", "display_name", "category_id", "factor", "factor_inv", "relative_factor"].filter((field) =>
+    uomFields.has(field),
+  );
   const records = await executeKw<OdooUomRecord[]>(config, uid, "uom.uom", "read", [uniqueUomIds, readFields]);
 
   return new Map(records.map((record) => [record.id, record]));
@@ -2632,6 +2740,16 @@ function convertQuantityBetweenUoms(
   if (!fromFactor || !toFactor) return quantity;
 
   return (quantity * fromFactor) / toFactor;
+}
+
+function convertUnitCostBetweenUoms(
+  unitCost: number,
+  fromUomId: number | null,
+  toUomId: number | null,
+  uomById: Map<number, OdooUomRecord>,
+) {
+  const convertedOneUnit = convertQuantityBetweenUoms(1, fromUomId, toUomId, uomById);
+  return Number.isFinite(convertedOneUnit) && convertedOneUnit > 0 ? unitCost / convertedOneUnit : unitCost;
 }
 
 async function getRecipeUnitCostMap(

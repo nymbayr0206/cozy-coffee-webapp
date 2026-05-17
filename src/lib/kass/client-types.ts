@@ -37,6 +37,7 @@ export interface KassProduct {
   image_base64?: string | null;
   available_for_sale?: boolean;
   is_storable?: boolean;
+  has_bom?: boolean;
   cost_price?: number;
   qty_available?: number;
   virtual_available?: number;
@@ -196,6 +197,7 @@ export interface ProductRecipeRequest {
 export interface ProductStockInRequest {
   quantity: number;
   unit_cost?: number | null;
+  uom_id?: number | null;
   partner_id?: number | null;
   payment_method?: StockReceiptPaymentMethod;
   paid_amount?: number;
@@ -212,6 +214,11 @@ export interface KassStockReceipt {
   quantity: number;
   unit_cost: number;
   total_cost: number;
+  uom_id?: number | null;
+  uom_name?: string | null;
+  stock_quantity?: number;
+  stock_uom_id?: number | null;
+  stock_uom_name?: string | null;
   partner_id?: number | null;
   partner_name?: string | null;
   payment_method?: StockReceiptPaymentMethod;
@@ -329,6 +336,11 @@ export interface ProductStockInResponse {
   quantity_available: number;
   unit_cost?: number | null;
   total_cost?: number | null;
+  uom_id?: number | null;
+  uom_name?: string | null;
+  stock_quantity_received?: number | null;
+  stock_uom_id?: number | null;
+  stock_uom_name?: string | null;
   partner?: KassPartner | null;
   receipt?: {
     id: number;

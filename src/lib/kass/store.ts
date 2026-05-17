@@ -69,6 +69,11 @@ export interface KassStockReceiptRecord {
   quantity: number;
   unit_cost: number;
   total_cost: number;
+  uom_id?: number | null;
+  uom_name?: string | null;
+  stock_quantity?: number;
+  stock_uom_id?: number | null;
+  stock_uom_name?: string | null;
   partner_id?: number | null;
   partner_name?: string | null;
   payment_method?: "cash" | "credit" | "mixed";
@@ -653,6 +658,7 @@ export function updateStockReceipt(
       | "quantity"
       | "unit_cost"
       | "total_cost"
+      | "stock_quantity"
       | "partner_id"
       | "partner_name"
       | "payment_method"
