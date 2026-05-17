@@ -66,15 +66,15 @@ const ODOO_USER_NAME_KEY = "kass.odoo_user_name";
 const ODOO_USER_ROLE_KEY = "kass.odoo_user_role";
 
 const navItems = [
-  { href: "/pos", label: "Касс", icon: ShoppingCart, roles: ["admin"] },
-  { href: "/dashboard", label: "Хянах самбар", icon: LayoutDashboard, roles: ["admin"] },
+  { href: "/pos", label: "Касс", icon: ShoppingCart, roles: ["admin", "barista"] },
+  { href: "/dashboard", label: "Хянах самбар", icon: LayoutDashboard, roles: ["admin", "barista"] },
   { href: "/products", label: "Бүтээгдэхүүн", icon: Boxes, roles: ["admin", "barista"] },
   { href: "/warehouse", label: "Агуулах", icon: Warehouse, roles: ["admin", "barista"] },
-  { href: "/partners", label: "Харилцагч", icon: Users, roles: ["admin"] },
-  { href: "/finance", label: "Өглөг/Авлага", icon: CircleDollarSign, roles: ["admin"] },
-  { href: "/sales", label: "Борлуулалт", icon: ReceiptText, roles: ["admin"] },
+  { href: "/partners", label: "Харилцагч", icon: Users, roles: ["admin", "barista"] },
+  { href: "/finance", label: "Өглөг/Авлага", icon: CircleDollarSign, roles: ["admin", "barista"] },
+  { href: "/sales", label: "Борлуулалт", icon: ReceiptText, roles: ["admin", "barista"] },
   { href: "/reports", label: "Тайлан", icon: BarChart3, roles: ["admin"] },
-  { href: "/settings", label: "Тохиргоо", icon: Settings, roles: ["admin"] },
+  { href: "/settings", label: "Тохиргоо", icon: Settings, roles: ["admin", "barista"] },
 ] satisfies Array<{
   href: string;
   label: string;
