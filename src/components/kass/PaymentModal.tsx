@@ -57,8 +57,10 @@ const paymentOptions: Array<{
   { method: "split", label: "Хуваах", icon: Split },
 ];
 
+type SelectedPaymentMethod = PaymentMethod | "split" | null;
+
 export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess }: PaymentModalProps) {
-  const [method, setMethod] = useState<PaymentMethod | "split">("qpay");
+  const [method, setMethod] = useState<SelectedPaymentMethod>(null);
   const [cashReceived, setCashReceived] = useState("");
   const [splitCashAmount, setSplitCashAmount] = useState("");
   const [splitCardAmount, setSplitCardAmount] = useState("");
@@ -204,7 +206,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
 
   useEffect(() => {
     if (!open) return;
-    setMethod("qpay");
+    setMethod(null);
     setCashReceived("");
     setSplitCashAmount("");
     setSplitCardAmount("");
@@ -231,11 +233,6 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
   }, [loadPartners, open]);
 
   useEffect(() => {
-    if (!open || method !== "qpay" || qpayInvoice) return;
-    void generateQpayInvoice();
-  }, [generateQpayInvoice, method, open, qpayInvoice]);
-
-  useEffect(() => {
     if (!open || method !== "split") return;
     setQpayInvoice(null);
     setQpayPaid(false);
@@ -248,7 +245,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
   async function submitOrder(
     nextMethod: OrderPaymentMethod,
     payments: PaymentPart[],
-    options?: { couponQrToken?: string; couponPin?: string },
+    options?: { couponQrToken?: string; couponPin?: string; qpayPaid?: boolean; autoPrint?: boolean },
   ) {
     if (!sessionId) {
       setError("Ээлж нээгдээгүй байна.");
@@ -264,7 +261,8 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     const creditPartnerId = creditPayment ? selectedCreditPartner?.id ?? null : null;
     const creditPartnerName = creditPayment ? selectedCreditPartner?.name ?? null : null;
 
-    if (qpayPayment && (!qpayInvoice || !qpayPaid || qpayInvoice.amount !== qpayPayment.amount)) {
+    const isQpayPaid = options?.qpayPaid ?? qpayPaid;
+    if (qpayPayment && (!qpayInvoice || !isQpayPaid || qpayInvoice.amount !== qpayPayment.amount)) {
       setError("QPay төлбөр төлөгдсөн эсэхийг эхлээд шалгана уу.");
       return;
     }
@@ -292,6 +290,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
         paymentMethod: nextMethod,
         payments,
         paidAt: new Date().toISOString(),
+        autoPrint: options?.autoPrint ?? false,
       });
     } catch (orderError) {
       setError(getReadableError(orderError));
@@ -323,6 +322,9 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
           : current,
       );
       setQpayPaid(status.paid);
+      if (status.paid && method === "qpay") {
+        await submitOrder("qpay", [{ method: "qpay", amount: total }], { qpayPaid: true, autoPrint: true });
+      }
       setQpayNotice(status.paid ? "QPay төлбөр амжилттай баталгаажлаа." : "Төлбөр хараахан орж ирээгүй байна.");
     } catch (checkError) {
       setError(getReadableError(checkError));
@@ -404,6 +406,19 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
         </div>
 
         <div className="payment-body">
+          {method === null ? (
+            <div className="payment-method-panel">
+              <div className="terminal-placeholder">
+                <ReceiptText size={58} aria-hidden="true" />
+                <span>Төлбөрийн төрлөө сонгоно уу</span>
+              </div>
+              <div>
+                <h3>Төлбөрийн сонголт</h3>
+                <p className="muted-text">Нийт дүн: {formatMoney(total)}</p>
+              </div>
+            </div>
+          ) : null}
+
           {method === "qpay" ? (
             <div className="payment-method-panel">
               <div className="qr-placeholder">
@@ -461,7 +476,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
                   <button
                     className="primary-button"
                     type="button"
-                    onClick={() => void submitOrder("qpay", [{ method: "qpay", amount: total }])}
+                    onClick={() => void submitOrder("qpay", [{ method: "qpay", amount: total }], { autoPrint: true })}
                     disabled={!qpayPaid || submitting}
                   >
                     <ReceiptText size={17} aria-hidden="true" />
@@ -927,7 +942,11 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
               <button
                 className="primary-button full-width"
                 type="button"
-                onClick={() => void submitOrder(splitPayments.length === 1 ? splitPayments[0].method : "mixed", splitPayments)}
+                onClick={() =>
+                  void submitOrder(splitPayments.length === 1 ? splitPayments[0].method : "mixed", splitPayments, {
+                    autoPrint: true,
+                  })
+                }
                 disabled={!splitReady || submitting}
               >
                 <ReceiptText size={17} aria-hidden="true" />

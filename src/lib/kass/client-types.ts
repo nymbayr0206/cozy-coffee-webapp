@@ -630,4 +630,5 @@ export interface ReceiptData {
   paymentMethod: OrderPaymentMethod;
   payments: PaymentPart[];
   paidAt: string;
+  autoPrint?: boolean;
 }

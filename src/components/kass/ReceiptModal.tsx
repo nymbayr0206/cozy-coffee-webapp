@@ -1,6 +1,7 @@
 "use client";
 
 import { Printer, ReceiptText, RotateCcw } from "lucide-react";
+import { useEffect } from "react";
 import { formatMoney, paymentMethodLabel } from "@/lib/kass/client-api";
 import type { ReceiptData } from "@/lib/kass/client-types";
 
@@ -24,11 +25,17 @@ function formatQuantity(quantity: number) {
 }
 
 export function ReceiptModal({ receipt, onNewSale }: ReceiptModalProps) {
-  if (!receipt) return null;
-
   function handlePrint() {
     window.print();
   }
+
+  useEffect(() => {
+    if (!receipt?.autoPrint) return;
+    const printTimer = window.setTimeout(() => window.print(), 150);
+    return () => window.clearTimeout(printTimer);
+  }, [receipt]);
+
+  if (!receipt) return null;
 
   const receiptNumber = resolveReceiptNumber(receipt);
   const orderId = resolveOrderId(receipt);
