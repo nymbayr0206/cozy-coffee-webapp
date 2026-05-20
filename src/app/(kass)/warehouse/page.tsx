@@ -186,6 +186,7 @@ export default function WarehousePage() {
   const [partners, setPartners] = useState<KassPartner[]>([]);
   const [stockReceipts, setStockReceipts] = useState<KassStockReceipt[]>([]);
   const [activeView, setActiveView] = useState<WarehouseView>("stock");
+  const [showFinishedOnly, setShowFinishedOnly] = useState(false);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
@@ -343,14 +344,15 @@ export default function WarehousePage() {
 
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return stockProducts;
+    const visibleProducts = showFinishedOnly ? stockProducts.filter(isLowStock) : stockProducts;
+    if (!normalizedQuery) return visibleProducts;
 
-    return stockProducts.filter((product) =>
+    return visibleProducts.filter((product) =>
       `${product.name} ${product.barcode ?? ""} ${product.category ?? ""}`
         .toLowerCase()
         .includes(normalizedQuery),
     );
-  }, [query, stockProducts]);
+  }, [query, showFinishedOnly, stockProducts]);
 
   const categoryProductCounts = useMemo(() => {
     const nextCounts = new Map<number, number>();
@@ -397,7 +399,10 @@ export default function WarehousePage() {
     () => ({
       totalItems: stockProducts.length,
       lowStock: stockProducts.filter(isLowStock).length,
-      totalUnits: stockProducts.reduce((sum, product) => sum + Number(product.qty_available ?? 0), 0),
+      totalValue: stockProducts.reduce(
+        (sum, product) => sum + Number(product.qty_available ?? 0) * Number(product.cost_price ?? 0),
+        0,
+      ),
     }),
     [stockProducts],
   );
@@ -465,6 +470,11 @@ export default function WarehousePage() {
     Number.isFinite(Number(receiptForm.quantity)) && Number.isFinite(Number(receiptForm.unit_cost))
       ? Number(receiptForm.quantity) * Number(receiptForm.unit_cost)
       : 0;
+
+  function showStockProducts(finishedOnly = false) {
+    setActiveView("stock");
+    setShowFinishedOnly(finishedOnly);
+  }
 
   function openStockModal(product: KassProduct) {
     setStockProduct(product);
@@ -866,6 +876,8 @@ export default function WarehousePage() {
                     ? "Орлогын түүх"
                     : activeView === "receipt-report"
                       ? "Орлогын тайлан"
+                    : showFinishedOnly
+                      ? "Дууссан бараа"
                     : "Үлдэгдэл ба орлого"}
               </h2>
               {!loading && !categoriesLoading ? <span className="soft-pill">{activeResultCount} илэрц</span> : null}
@@ -898,7 +910,7 @@ export default function WarehousePage() {
             type="button"
             role="tab"
             aria-selected={activeView === "stock"}
-            onClick={() => setActiveView("stock")}
+            onClick={() => showStockProducts(false)}
             data-testid="warehouse-stock-tab"
           >
             <Warehouse size={16} aria-hidden="true" />
@@ -951,21 +963,33 @@ export default function WarehousePage() {
           </div>
           <div className="metric">
             <Boxes size={22} aria-hidden="true" />
-            <span>Нийт үлдэгдэл</span>
-            <strong>{summary.totalUnits.toLocaleString("mn-MN")}</strong>
+            <span>Нийт үлдэгдэл дүн</span>
+            <strong>{formatMoney(summary.totalValue)}</strong>
           </div>
-          <div className="metric">
+          <button
+            className={showFinishedOnly && activeView === "stock" ? "metric metric-button active" : "metric metric-button"}
+            type="button"
+            onClick={() => showStockProducts(true)}
+            aria-pressed={showFinishedOnly && activeView === "stock"}
+            data-testid="warehouse-finished-filter-button"
+          >
             <AlertTriangle size={22} aria-hidden="true" />
-            <span>Дууссан / 0</span>
+            <span>Дууссан бараа</span>
             <strong>{summary.lowStock}</strong>
-          </div>
+          </button>
         </div>
 
         <label className="search-box list-search">
           <Search size={18} aria-hidden="true" />
           <input
             type="search"
-            placeholder={activeView === "categories" ? "Ангиллын нэрээр хайх" : "Нэр, баркод, ангиллаар хайх"}
+            placeholder={
+              activeView === "categories"
+                ? "Ангиллын нэрээр хайх"
+                : showFinishedOnly && activeView === "stock"
+                  ? "Дууссан бараанаас хайх"
+                : "Нэр, баркод, ангиллаар хайх"
+            }
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
@@ -1055,7 +1079,7 @@ export default function WarehousePage() {
                   );
                 })
               ) : (
-                <div className="state-box">Агуулахын бараа олдсонгүй.</div>
+                <div className="state-box">{showFinishedOnly ? "Дууссан бараа алга байна." : "Агуулахын бараа олдсонгүй."}</div>
               )}
             </div>
 
@@ -1154,7 +1178,7 @@ export default function WarehousePage() {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={8}>Агуулахын бараа олдсонгүй.</td>
+                      <td colSpan={8}>{showFinishedOnly ? "Дууссан бараа алга байна." : "Агуулахын бараа олдсонгүй."}</td>
                     </tr>
                   )}
                 </tbody>

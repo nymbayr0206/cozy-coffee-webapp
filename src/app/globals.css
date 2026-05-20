@@ -971,6 +971,26 @@ nextjs-portal {
   overflow-wrap: anywhere;
 }
 
+.metric-button {
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.metric-button:hover,
+.metric-button:focus-visible {
+  border-color: #dac7d5;
+  background: #f5edf3;
+}
+
+.metric-button.active {
+  border-color: #b98baa;
+  background: #f5edf3;
+  box-shadow: inset 0 0 0 1px #dac7d5;
+}
+
 .session-user-card {
   margin: 2px 0;
 }
