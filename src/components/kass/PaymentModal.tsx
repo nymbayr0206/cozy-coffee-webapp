@@ -89,6 +89,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
   const [partnersLoading, setPartnersLoading] = useState(false);
   const [selectedCreditPartnerId, setSelectedCreditPartnerId] = useState("");
   const qpayRequestKeyRef = useRef<string | null>(null);
+  const qpayAutoFinalizingRef = useRef(false);
 
   const orderLines = useMemo(
     () =>
@@ -164,6 +165,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
       if (!force && qpayRequestKeyRef.current === qpayRequestKey) return;
 
       qpayRequestKeyRef.current = qpayRequestKey;
+      qpayAutoFinalizingRef.current = false;
       setQpayLoading(true);
       setQpayNotice(null);
       setError(null);
@@ -229,8 +231,15 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     setCouponValidated(null);
     setSelectedCreditPartnerId("");
     qpayRequestKeyRef.current = null;
+    qpayAutoFinalizingRef.current = false;
     void loadPartners();
   }, [loadPartners, open]);
+
+  useEffect(() => {
+    if (!open || method !== "qpay") return;
+    if (qpayInvoice?.amount === total) return;
+    void generateQpayInvoice(false, total);
+  }, [generateQpayInvoice, method, open, qpayInvoice?.amount, total]);
 
   useEffect(() => {
     if (!open || method !== "split") return;
@@ -238,7 +247,89 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     setQpayPaid(false);
     setQpayNotice(null);
     qpayRequestKeyRef.current = null;
+    qpayAutoFinalizingRef.current = false;
   }, [method, open, splitQpayAmount]);
+
+  useEffect(() => {
+    if (
+      !open ||
+      method !== "qpay" ||
+      !qpayInvoice ||
+      qpayInvoice.amount !== total ||
+      qpayPaid ||
+      qpayLoading ||
+      submitting
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let checking = false;
+
+    async function pollQpayPayment() {
+      if (!qpayInvoice || checking || qpayAutoFinalizingRef.current) return;
+
+      checking = true;
+      setQpayChecking(true);
+      setError(null);
+
+      try {
+        const status = await checkQpayPayment({ transaction_id: qpayInvoice.transaction_id });
+        if (cancelled) return;
+
+        setQpayInvoice((current) =>
+          current
+            ? {
+                ...current,
+                state: status.state,
+                paid: status.paid,
+                error_message: status.error_message,
+              }
+            : current,
+        );
+        setQpayPaid(status.paid);
+
+        if (status.paid) {
+          qpayAutoFinalizingRef.current = true;
+          await submitOrder("qpay", [{ method: "qpay", amount: total }], { qpayPaid: true, autoPrint: true });
+          return;
+        }
+
+        setQpayNotice("QPay төлбөр хүлээгдэж байна. Төлөгдвөл баримт автоматаар гарна.");
+      } catch (checkError) {
+        if (!cancelled) setError(getReadableError(checkError));
+      } finally {
+        checking = false;
+        if (!cancelled) setQpayChecking(false);
+      }
+    }
+
+    const firstCheck = window.setTimeout(() => void pollQpayPayment(), 1500);
+    const interval = window.setInterval(() => void pollQpayPayment(), 4000);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(firstCheck);
+      window.clearInterval(interval);
+    };
+  }, [method, open, qpayInvoice, qpayLoading, qpayPaid, submitting, total]);
+
+  useEffect(() => {
+    if (
+      !open ||
+      method !== "qpay" ||
+      !qpayInvoice ||
+      qpayInvoice.amount !== total ||
+      !qpayPaid ||
+      submitting ||
+      qpayAutoFinalizingRef.current
+    ) {
+      return;
+    }
+
+    qpayAutoFinalizingRef.current = true;
+    void submitOrder("qpay", [{ method: "qpay", amount: total }], { qpayPaid: true, autoPrint: true });
+  }, [method, open, qpayInvoice, qpayPaid, submitting, total]);
 
   if (!open) return null;
 
@@ -293,6 +384,9 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
         autoPrint: options?.autoPrint ?? false,
       });
     } catch (orderError) {
+      if (options?.autoPrint) {
+        qpayAutoFinalizingRef.current = false;
+      }
       setError(getReadableError(orderError));
     } finally {
       setSubmitting(false);
@@ -467,20 +561,10 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
                   <button
                     className="secondary-button"
                     type="button"
-                    onClick={() => void handleQpayCheck()}
-                    disabled={!qpayInvoice || qpayLoading || qpayChecking || submitting}
+                    disabled
                   >
                     {qpayChecking ? <Loader2 className="spin-icon" size={17} aria-hidden="true" /> : <QrCode size={17} aria-hidden="true" />}
-                    <span>{qpayChecking ? "Шалгаж байна" : "Төлбөр шалгах"}</span>
-                  </button>
-                  <button
-                    className="primary-button"
-                    type="button"
-                    onClick={() => void submitOrder("qpay", [{ method: "qpay", amount: total }], { autoPrint: true })}
-                    disabled={!qpayPaid || submitting}
-                  >
-                    <ReceiptText size={17} aria-hidden="true" />
-                    <span>{submitting ? "Илгээж байна" : "Захиалга үүсгэх"}</span>
+                    <span>{qpayChecking || submitting ? "Автоматаар шалгаж байна" : "Төлбөр хүлээж байна"}</span>
                   </button>
                 </div>
               </div>
