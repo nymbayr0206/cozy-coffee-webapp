@@ -2752,6 +2752,21 @@ function convertUnitCostBetweenUoms(
   return Number.isFinite(convertedOneUnit) && convertedOneUnit > 0 ? unitCost / convertedOneUnit : unitCost;
 }
 
+function normalizeSmallUomBulkCost(unitCost: number, uomName: string | null | undefined) {
+  if (!Number.isFinite(unitCost) || unitCost <= 0) return 0;
+
+  const normalizedUom = String(uomName ?? "").trim().toLowerCase();
+  const isSmallMetricUnit = ["g", "gram", "grams", "гр", "г", "ml", "milliliter", "milliliters", "мл"].includes(
+    normalizedUom,
+  );
+
+  return isSmallMetricUnit && unitCost >= 1000 ? unitCost / 1000 : unitCost;
+}
+
+function productUnitCost(product: OdooProductRecord) {
+  return normalizeSmallUomBulkCost(Number(product.standard_price ?? 0), relationName(product.uom_id));
+}
+
 async function getRecipeUnitCostMap(
   config: OdooConfig,
   uid: number,
@@ -2796,7 +2811,7 @@ async function getRecipeUnitCostMap(
   if (missingComponentIds.length > 0) {
     const componentProducts = await readProductCostRecords(config, uid, missingComponentIds);
     componentProducts.forEach((component) => {
-      componentCostByProduct.set(component.id, Number(component.standard_price ?? 0));
+      componentCostByProduct.set(component.id, productUnitCost(component));
       productById.set(component.id, component);
     });
   }
@@ -2827,7 +2842,10 @@ async function getRecipeUnitCostMap(
         relationId(productById.get(componentId)?.uom_id),
         uomById,
       );
-      const unitCost = Number(componentCostByProduct.get(componentId) ?? 0);
+      const unitCost = normalizeSmallUomBulkCost(
+        Number(componentCostByProduct.get(componentId) ?? 0),
+        relationName(productById.get(componentId)?.uom_id),
+      );
       return sum + (Number.isFinite(quantity) && Number.isFinite(unitCost) ? quantity * unitCost : 0);
     }, 0);
 
@@ -2847,7 +2865,7 @@ async function getRecipeUnitCostMap(
 
 async function getProductCostMap(config: OdooConfig, uid: number, productIds: number[], modules: Record<string, string>) {
   const products = await readProductCostRecords(config, uid, productIds);
-  const costByProduct = new Map(products.map((product) => [product.id, Number(product.standard_price ?? 0)]));
+  const costByProduct = new Map(products.map((product) => [product.id, productUnitCost(product)]));
 
   if (modules.mrp === "installed") {
     const recipeCostByProduct = await getRecipeUnitCostMap(config, uid, products, costByProduct);
@@ -2910,10 +2928,10 @@ function summarizeSaleOrderLines(
     const purchasePrice = odooNumber(line.purchase_price);
     const lineMargin = odooNumber(line.margin);
     const lineCost =
-      purchasePrice !== null && purchasePrice > 0
-        ? purchasePrice * quantity
-        : fallbackUnitCost > 0
-          ? fallbackUnitCost * quantity
+      fallbackUnitCost > 0
+        ? fallbackUnitCost * quantity
+        : purchasePrice !== null && purchasePrice > 0
+          ? purchasePrice * quantity
           : lineMargin !== null && lineMargin !== 0
             ? lineTotal - lineMargin
             : 0;
