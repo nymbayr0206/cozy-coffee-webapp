@@ -1,8 +1,8 @@
 "use client";
 
-import { Clock3, RefreshCcw, Undo2 } from "lucide-react";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Clock3, Eye, RefreshCcw, Undo2 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Fragment, Suspense, useEffect, useState } from "react";
 import { useKassSession } from "@/components/kass/AppShell";
 import {
   formatMoney,
@@ -64,6 +64,7 @@ function eventAmountLabel(event: KassSessionEvent) {
 }
 
 function SalesPageContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const { sessionId, report, reportLoading, reportError, refreshReport } = useKassSession();
   const selectedSessionId = searchParams.get("session_id");
@@ -177,6 +178,78 @@ function SalesPageContent() {
     } finally {
       setUpdatingPaymentKey(null);
     }
+  }
+
+  function handleViewSessionSales(session: KassReport) {
+    if (!session.session_id) return;
+    router.push(`/sales?session_id=${encodeURIComponent(session.session_id)}`);
+  }
+
+  function renderOrderRows(orderList: KassOrderSummary[], emptyMessage: string) {
+    if (orderList.length === 0) {
+      return (
+        <tr>
+          <td colSpan={6}>{emptyMessage}</td>
+        </tr>
+      );
+    }
+
+    return orderList.map((order, index) => {
+      const reference = order.receipt_number ?? order.order_id;
+      const isReturned = order.status === "returned";
+      const returning = returningOrderKey === String(reference);
+      const updatingPayment = updatingPaymentKey === String(reference);
+      const selectedPaymentMethod = editablePaymentMethods.includes(order.payment_method as PaymentMethod)
+        ? order.payment_method
+        : "";
+
+      return (
+        <tr className={isReturned ? "row-returned" : undefined} key={`${order.order_id ?? order.receipt_number ?? index}`}>
+          <td>
+            {order.receipt_number ?? "Байхгүй"}
+            {isReturned ? <span className="table-subtext">Буцаагдсан: {formatDateTime(order.returned_at)}</span> : null}
+          </td>
+          <td>{order.order_id ?? "Байхгүй"}</td>
+          <td>
+            {isReturned ? (
+              <span className="status-pill muted">Буцаагдсан</span>
+            ) : (
+              <div className="payment-edit-cell">
+                <select
+                  aria-label={`${order.receipt_number ?? order.order_id ?? "Борлуулалт"} төлбөрийн төрөл`}
+                  value={selectedPaymentMethod}
+                  onChange={(event) => handleUpdateOrderPayment(order, event.target.value as PaymentMethod)}
+                  disabled={updatingPayment || returning || !reference}
+                >
+                  {selectedPaymentMethod ? null : <option value="">{paymentMethodLabel(order.payment_method)}</option>}
+                  {editablePaymentMethods.map((method) => (
+                    <option key={method} value={method}>
+                      {paymentMethodLabel(method)}
+                    </option>
+                  ))}
+                </select>
+                {updatingPayment ? <span className="table-subtext">Засаж байна</span> : null}
+              </div>
+            )}
+          </td>
+          <td>{formatMoney(order.total)}</td>
+          <td>{formatDateTime(order.created_at ?? order.date)}</td>
+          <td>
+            <div className="table-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => handleReturnOrder(order)}
+                disabled={isReturned || returning || updatingPayment || !reference}
+              >
+                <Undo2 size={16} aria-hidden="true" />
+                <span>{returning ? "Буцааж байна" : "Буцаах"}</span>
+              </button>
+            </div>
+          </td>
+        </tr>
+      );
+    });
   }
 
   useEffect(() => {
@@ -308,75 +381,15 @@ function SalesPageContent() {
               </tr>
             </thead>
             <tbody>
-              {orders.length > 0 ? (
-                orders.map((order, index) => {
-                  const reference = order.receipt_number ?? order.order_id;
-                  const isReturned = order.status === "returned";
-                  const returning = returningOrderKey === String(reference);
-                  const updatingPayment = updatingPaymentKey === String(reference);
-                  const selectedPaymentMethod = editablePaymentMethods.includes(order.payment_method as PaymentMethod)
-                    ? order.payment_method
-                    : "";
-
-                  return (
-                    <tr className={isReturned ? "row-returned" : undefined} key={`${order.order_id ?? order.receipt_number ?? index}`}>
-                      <td>
-                        {order.receipt_number ?? "Байхгүй"}
-                        {isReturned ? <span className="table-subtext">Буцаагдсан: {formatDateTime(order.returned_at)}</span> : null}
-                      </td>
-                      <td>{order.order_id ?? "Байхгүй"}</td>
-                      <td>
-                        {isReturned ? (
-                          <span className="status-pill muted">Буцаагдсан</span>
-                        ) : (
-                          <div className="payment-edit-cell">
-                            <select
-                              aria-label={`${order.receipt_number ?? order.order_id ?? "Борлуулалт"} төлбөрийн төрөл`}
-                              value={selectedPaymentMethod}
-                              onChange={(event) => handleUpdateOrderPayment(order, event.target.value as PaymentMethod)}
-                              disabled={updatingPayment || returning || !reference}
-                            >
-                              {selectedPaymentMethod ? null : <option value="">{paymentMethodLabel(order.payment_method)}</option>}
-                              {editablePaymentMethods.map((method) => (
-                                <option key={method} value={method}>
-                                  {paymentMethodLabel(method)}
-                                </option>
-                              ))}
-                            </select>
-                            {updatingPayment ? <span className="table-subtext">Засаж байна</span> : null}
-                          </div>
-                        )}
-                      </td>
-                      <td>{formatMoney(order.total)}</td>
-                      <td>{formatDateTime(order.created_at ?? order.date)}</td>
-                      <td>
-                        <div className="table-actions">
-                          <button
-                            className="secondary-button"
-                            type="button"
-                            onClick={() => handleReturnOrder(order)}
-                            disabled={isReturned || returning || updatingPayment || !reference}
-                          >
-                            <Undo2 size={16} aria-hidden="true" />
-                            <span>{returning ? "Буцааж байна" : "Буцаах"}</span>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={6}>
-                    {displayLoading
-                      ? "Ээлжийн тайлан уншиж байна."
-                      : viewingSpecificSession
-                        ? "Энэ ээлж дээр борлуулалт бүртгэгдээгүй байна."
-                        : sessionId
-                          ? "Энэ ээлж дээр борлуулалт бүртгэгдээгүй байна."
-                          : "Ээлж нээгдээгүй байна."}
-                  </td>
-                </tr>
+              {renderOrderRows(
+                orders,
+                displayLoading
+                  ? "Ээлжийн тайлан уншиж байна."
+                  : viewingSpecificSession
+                    ? "Энэ ээлж дээр борлуулалт бүртгэгдээгүй байна."
+                    : sessionId
+                      ? "Энэ ээлж дээр борлуулалт бүртгэгдээгүй байна."
+                      : "Ээлж нээгдээгүй байна.",
               )}
             </tbody>
           </table>
@@ -406,30 +419,83 @@ function SalesPageContent() {
                   <th>Хаалтын касс</th>
                   <th>Зөрүү</th>
                   <th>Нийт борлуулалт</th>
+                  <th>Үйлдэл</th>
                 </tr>
               </thead>
               <tbody>
                 {sessions.length > 0 ? (
-                  sessions.map((session) => (
-                    <tr key={session.session_id}>
-                      <td>
-                        <span className={session.closed_at ? "status-pill muted" : "status-pill success"}>
-                          {sessionStatusLabel(session)}
-                        </span>
-                      </td>
-                      <td>{session.cashier_name ?? "Кассир"}</td>
-                      <td>{formatDateTime(session.opened_at)}</td>
-                      <td>{formatDateTime(session.closed_at)}</td>
-                      <td>{formatMoney(session.opening_cash)}</td>
-                      <td>{formatMoney(session.expected_cash)}</td>
-                      <td>{formatOptionalMoney(session.closing_cash)}</td>
-                      <td>{formatOptionalMoney(session.cash_difference)}</td>
-                      <td>{formatMoney(session.total_sales)}</td>
-                    </tr>
-                  ))
+                  sessions.map((session) => {
+                    const isSelectedSession = selectedSessionId === session.session_id;
+                    const selectedSessionOrders = isSelectedSession && Array.isArray(selectedReport?.orders) ? selectedReport.orders : [];
+
+                    return (
+                      <Fragment key={session.session_id}>
+                        <tr className={isSelectedSession ? "row-selected" : undefined}>
+                          <td>
+                            <span className={session.closed_at ? "status-pill muted" : "status-pill success"}>
+                              {sessionStatusLabel(session)}
+                            </span>
+                          </td>
+                          <td>{session.cashier_name ?? "Кассир"}</td>
+                          <td>{formatDateTime(session.opened_at)}</td>
+                          <td>{formatDateTime(session.closed_at)}</td>
+                          <td>{formatMoney(session.opening_cash)}</td>
+                          <td>{formatMoney(session.expected_cash)}</td>
+                          <td>{formatOptionalMoney(session.closing_cash)}</td>
+                          <td>{formatOptionalMoney(session.cash_difference)}</td>
+                          <td>{formatMoney(session.total_sales)}</td>
+                          <td>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() => handleViewSessionSales(session)}
+                              disabled={!session.session_id || (isSelectedSession && selectedReportLoading)}
+                            >
+                              <Eye size={16} aria-hidden="true" />
+                              <span>{isSelectedSession ? "Харагдаж байна" : "Борлуулалт харах"}</span>
+                            </button>
+                          </td>
+                        </tr>
+                        {isSelectedSession ? (
+                          <tr className="session-orders-row">
+                            <td colSpan={10}>
+                              <div className="session-orders-panel">
+                                <div className="session-orders-heading">
+                                  <strong>Энэ ээлжийн борлуулалт</strong>
+                                  <span>{selectedReportLoading ? "Уншиж байна" : `${selectedSessionOrders.length} мөр`}</span>
+                                </div>
+                                <div className="table-wrap nested-table-wrap">
+                                  <table className="data-table session-orders-table">
+                                    <thead>
+                                      <tr>
+                                        <th>Баримт</th>
+                                        <th>Захиалгын ID</th>
+                                        <th>Төлбөр</th>
+                                        <th>Нийт дүн</th>
+                                        <th>Огноо</th>
+                                        <th>Үйлдэл</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {renderOrderRows(
+                                        selectedSessionOrders,
+                                        selectedReportLoading
+                                          ? "Энэ ээлжийн борлуулалт уншиж байна."
+                                          : "Энэ ээлж дээр борлуулалт бүртгэгдээгүй байна.",
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })
                 ) : (
                   <tr>
-                    <td colSpan={9}>{historyLoading ? "Ээлжийн бүртгэл уншиж байна." : "Ээлжийн бүртгэл алга."}</td>
+                    <td colSpan={10}>{historyLoading ? "Ээлжийн бүртгэл уншиж байна." : "Ээлжийн бүртгэл алга."}</td>
                   </tr>
                 )}
               </tbody>
