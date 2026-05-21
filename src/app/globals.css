@@ -2607,41 +2607,6 @@ nextjs-portal {
   min-width: 1320px;
 }
 
-.session-orders-row > td {
-  padding: 0;
-  background: #fbfcfd;
-}
-
-.session-orders-panel {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
-
-.session-orders-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--text);
-}
-
-.session-orders-heading span {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 760;
-}
-
-.nested-table-wrap {
-  border-radius: 6px;
-}
-
-.session-orders-table {
-  min-width: 900px;
-}
-
 .payment-edit-cell {
   display: grid;
   gap: 4px;

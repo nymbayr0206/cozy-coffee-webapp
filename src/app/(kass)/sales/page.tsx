@@ -2,7 +2,7 @@
 
 import { Clock3, Eye, RefreshCcw, Undo2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Fragment, Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useKassSession } from "@/components/kass/AppShell";
 import {
   formatMoney,
@@ -426,71 +426,34 @@ function SalesPageContent() {
                 {sessions.length > 0 ? (
                   sessions.map((session) => {
                     const isSelectedSession = selectedSessionId === session.session_id;
-                    const selectedSessionOrders = isSelectedSession && Array.isArray(selectedReport?.orders) ? selectedReport.orders : [];
 
                     return (
-                      <Fragment key={session.session_id}>
-                        <tr className={isSelectedSession ? "row-selected" : undefined}>
-                          <td>
-                            <span className={session.closed_at ? "status-pill muted" : "status-pill success"}>
-                              {sessionStatusLabel(session)}
-                            </span>
-                          </td>
-                          <td>{session.cashier_name ?? "Кассир"}</td>
-                          <td>{formatDateTime(session.opened_at)}</td>
-                          <td>{formatDateTime(session.closed_at)}</td>
-                          <td>{formatMoney(session.opening_cash)}</td>
-                          <td>{formatMoney(session.expected_cash)}</td>
-                          <td>{formatOptionalMoney(session.closing_cash)}</td>
-                          <td>{formatOptionalMoney(session.cash_difference)}</td>
-                          <td>{formatMoney(session.total_sales)}</td>
-                          <td>
-                            <button
-                              className="secondary-button"
-                              type="button"
-                              onClick={() => handleViewSessionSales(session)}
-                              disabled={!session.session_id || (isSelectedSession && selectedReportLoading)}
-                            >
-                              <Eye size={16} aria-hidden="true" />
-                              <span>{isSelectedSession ? "Харагдаж байна" : "Борлуулалт харах"}</span>
-                            </button>
-                          </td>
-                        </tr>
-                        {isSelectedSession ? (
-                          <tr className="session-orders-row">
-                            <td colSpan={10}>
-                              <div className="session-orders-panel">
-                                <div className="session-orders-heading">
-                                  <strong>Энэ ээлжийн борлуулалт</strong>
-                                  <span>{selectedReportLoading ? "Уншиж байна" : `${selectedSessionOrders.length} мөр`}</span>
-                                </div>
-                                <div className="table-wrap nested-table-wrap">
-                                  <table className="data-table session-orders-table">
-                                    <thead>
-                                      <tr>
-                                        <th>Баримт</th>
-                                        <th>Захиалгын ID</th>
-                                        <th>Төлбөр</th>
-                                        <th>Нийт дүн</th>
-                                        <th>Огноо</th>
-                                        <th>Үйлдэл</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {renderOrderRows(
-                                        selectedSessionOrders,
-                                        selectedReportLoading
-                                          ? "Энэ ээлжийн борлуулалт уншиж байна."
-                                          : "Энэ ээлж дээр борлуулалт бүртгэгдээгүй байна.",
-                                      )}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        ) : null}
-                      </Fragment>
+                      <tr className={isSelectedSession ? "row-selected" : undefined} key={session.session_id}>
+                        <td>
+                          <span className={session.closed_at ? "status-pill muted" : "status-pill success"}>
+                            {sessionStatusLabel(session)}
+                          </span>
+                        </td>
+                        <td>{session.cashier_name ?? "Кассир"}</td>
+                        <td>{formatDateTime(session.opened_at)}</td>
+                        <td>{formatDateTime(session.closed_at)}</td>
+                        <td>{formatMoney(session.opening_cash)}</td>
+                        <td>{formatMoney(session.expected_cash)}</td>
+                        <td>{formatOptionalMoney(session.closing_cash)}</td>
+                        <td>{formatOptionalMoney(session.cash_difference)}</td>
+                        <td>{formatMoney(session.total_sales)}</td>
+                        <td>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => handleViewSessionSales(session)}
+                            disabled={!session.session_id || (isSelectedSession && selectedReportLoading)}
+                          >
+                            <Eye size={16} aria-hidden="true" />
+                            <span>{isSelectedSession ? "Дээр харагдаж байна" : "Борлуулалт харах"}</span>
+                          </button>
+                        </td>
+                      </tr>
                     );
                   })
                 ) : (
