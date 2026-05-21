@@ -29,6 +29,7 @@ export type KassErrorCode =
   | "invalid_payment_method"
   | "order_create_failed"
   | "order_return_failed"
+  | "order_payment_update_failed"
   | "validation_error";
 
 export class KassServerError extends Error {

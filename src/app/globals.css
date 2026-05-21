@@ -2599,6 +2599,29 @@ nextjs-portal {
   background: #f8fafc;
 }
 
+.payment-edit-cell {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+}
+
+.payment-edit-cell select {
+  min-height: 36px;
+  width: 100%;
+  padding: 0 10px;
+  color: var(--text);
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-weight: 760;
+  outline: none;
+}
+
+.payment-edit-cell select:disabled {
+  color: var(--muted);
+  background: #f8fafc;
+}
+
 .product-thumb {
   width: 44px;
   height: 44px;

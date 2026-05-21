@@ -450,6 +450,15 @@ export interface ReturnOrderResponse {
   order: KassOrderSummary;
 }
 
+export interface UpdateOrderPaymentRequest {
+  payment_method: PaymentMethod;
+}
+
+export interface UpdateOrderPaymentResponse {
+  ok: boolean;
+  order: KassOrderSummary;
+}
+
 export interface QpayInvoiceRequest {
   session_id: string;
   lines: OrderLineRequest[];

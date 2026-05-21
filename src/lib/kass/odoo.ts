@@ -3311,6 +3311,31 @@ export async function cancelOdooSaleOrder(saleOrderId: number) {
   }
 }
 
+export async function updateOdooSaleOrderPayment(saleOrderId: number, paymentMethod: string, payments: PaymentPart[]) {
+  const config = getOdooConfig();
+  const uid = await authenticate(config);
+  const modules = await getModuleStates(config, uid);
+  assertModuleInstalled(modules, "sale");
+
+  try {
+    const records = await executeKw<Array<{ id: number; note?: string | false }>>(config, uid, "sale.order", "read", [
+      [saleOrderId],
+      ["id", "note"],
+    ]);
+    const order = records[0];
+
+    if (!order) {
+      throw new KassServerError("order_not_found", "Odoo sale order олдсонгүй.", 404);
+    }
+
+    await executeKw<boolean>(config, uid, "sale.order", "write", [[saleOrderId], { note: formatPaymentNote(paymentMethod, payments) }]);
+    return true;
+  } catch (error) {
+    if (error instanceof KassServerError) throw error;
+    throw new KassServerError("order_payment_update_failed", "Odoo sale order-ийн төлбөр засахад алдаа гарлаа.", 502);
+  }
+}
+
 export async function createOdooSaleOrder(
   lines: Array<{ product_id: number; quantity: number; price: number }>,
   paymentMethod: string,

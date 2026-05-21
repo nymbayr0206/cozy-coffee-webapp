@@ -11,8 +11,11 @@ import {
   getSessionReport,
   paymentMethodLabel,
   returnKassOrder,
+  updateKassOrderPayment,
 } from "@/lib/kass/client-api";
-import type { KassOrderSummary, KassSessionEvent, KassReport } from "@/lib/kass/client-types";
+import type { KassOrderSummary, KassSessionEvent, KassReport, PaymentMethod } from "@/lib/kass/client-types";
+
+const editablePaymentMethods: PaymentMethod[] = ["cash", "card", "qpay", "bank", "credit"];
 
 function formatDateTime(value?: string | null) {
   if (!value) return "Байхгүй";
@@ -73,6 +76,7 @@ function SalesPageContent() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [returningOrderKey, setReturningOrderKey] = useState<string | null>(null);
+  const [updatingPaymentKey, setUpdatingPaymentKey] = useState<string | null>(null);
   const displayReport = viewingSpecificSession ? selectedReport : report;
   const displayLoading = viewingSpecificSession ? selectedReportLoading : reportLoading;
   const displayError = viewingSpecificSession ? selectedReportError : reportError;
@@ -142,6 +146,36 @@ function SalesPageContent() {
       }
     } finally {
       setReturningOrderKey(null);
+    }
+  }
+
+  async function handleUpdateOrderPayment(order: KassOrderSummary, paymentMethod: PaymentMethod) {
+    const reference = order.receipt_number ?? order.order_id;
+    if (!reference) return;
+    if (order.payment_method === paymentMethod) return;
+
+    const ok = window.confirm(
+      `${order.receipt_number ?? order.order_id} борлуулалтын төлбөрийг ${paymentMethodLabel(paymentMethod)} болгох уу?`,
+    );
+    if (!ok) return;
+
+    const key = String(reference);
+    setUpdatingPaymentKey(key);
+    setSelectedReportError(null);
+    setHistoryError(null);
+
+    try {
+      await updateKassOrderPayment(reference, { payment_method: paymentMethod });
+      await refreshAll();
+    } catch (error) {
+      const message = getReadableError(error);
+      if (viewingSpecificSession) {
+        setSelectedReportError(message);
+      } else {
+        setHistoryError(message);
+      }
+    } finally {
+      setUpdatingPaymentKey(null);
     }
   }
 
@@ -279,6 +313,10 @@ function SalesPageContent() {
                   const reference = order.receipt_number ?? order.order_id;
                   const isReturned = order.status === "returned";
                   const returning = returningOrderKey === String(reference);
+                  const updatingPayment = updatingPaymentKey === String(reference);
+                  const selectedPaymentMethod = editablePaymentMethods.includes(order.payment_method as PaymentMethod)
+                    ? order.payment_method
+                    : "";
 
                   return (
                     <tr className={isReturned ? "row-returned" : undefined} key={`${order.order_id ?? order.receipt_number ?? index}`}>
@@ -288,22 +326,41 @@ function SalesPageContent() {
                       </td>
                       <td>{order.order_id ?? "Байхгүй"}</td>
                       <td>
-                        <span className={isReturned ? "status-pill muted" : "status-pill success"}>
-                          {isReturned ? "Буцаагдсан" : paymentMethodLabel(order.payment_method)}
-                        </span>
+                        {isReturned ? (
+                          <span className="status-pill muted">Буцаагдсан</span>
+                        ) : (
+                          <div className="payment-edit-cell">
+                            <select
+                              aria-label={`${order.receipt_number ?? order.order_id ?? "Борлуулалт"} төлбөрийн төрөл`}
+                              value={selectedPaymentMethod}
+                              onChange={(event) => handleUpdateOrderPayment(order, event.target.value as PaymentMethod)}
+                              disabled={updatingPayment || returning || !reference}
+                            >
+                              {selectedPaymentMethod ? null : <option value="">{paymentMethodLabel(order.payment_method)}</option>}
+                              {editablePaymentMethods.map((method) => (
+                                <option key={method} value={method}>
+                                  {paymentMethodLabel(method)}
+                                </option>
+                              ))}
+                            </select>
+                            {updatingPayment ? <span className="table-subtext">Засаж байна</span> : null}
+                          </div>
+                        )}
                       </td>
                       <td>{formatMoney(order.total)}</td>
                       <td>{formatDateTime(order.created_at ?? order.date)}</td>
                       <td>
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          onClick={() => handleReturnOrder(order)}
-                          disabled={isReturned || returning || !reference}
-                        >
-                          <Undo2 size={16} aria-hidden="true" />
-                          <span>{returning ? "Буцааж байна" : "Буцаах"}</span>
-                        </button>
+                        <div className="table-actions">
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => handleReturnOrder(order)}
+                            disabled={isReturned || returning || updatingPayment || !reference}
+                          >
+                            <Undo2 size={16} aria-hidden="true" />
+                            <span>{returning ? "Буцааж байна" : "Буцаах"}</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

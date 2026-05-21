@@ -40,6 +40,7 @@ export interface KassOrderRecord {
   stock_consumptions?: KassStockConsumption[];
   status?: "active" | "returned";
   created_at: string;
+  payment_updated_at?: string;
   returned_at?: string;
 }
 
@@ -516,6 +517,42 @@ export function returnOrder(reference: string) {
         amount: -Math.abs(order.total),
         created_at: order.returned_at,
       });
+
+      return order;
+    }
+
+    throw new KassServerError("order_not_found", "Борлуулалтын бүртгэл олдсонгүй.", 404);
+  });
+}
+
+export function updateOrderPayment(reference: string, paymentMethod: OrderPaymentMethod, paymentParts: PaymentPart[]) {
+  return withLockedState((state) => {
+    const needle = String(reference).trim();
+
+    for (const [sessionId, orders] of state.orders.entries()) {
+      const order = orders.find((item) => String(item.receipt_number) === needle || String(item.order_id) === needle);
+
+      if (!order) continue;
+
+      if (order.status === "returned") {
+        throw new KassServerError("order_returned", "Буцаагдсан борлуулалтын төлбөрийг засах боломжгүй.", 409);
+      }
+
+      order.payment_method = paymentMethod;
+      order.payment_parts = paymentParts;
+      order.payment_updated_at = new Date().toISOString();
+      state.orders.set(sessionId, orders);
+
+      state.events = state.events.map((event) =>
+        event.type === "order_created" &&
+        (String(event.receipt_number) === needle || String(event.order_id) === needle)
+          ? {
+              ...event,
+              payment_method: paymentMethod,
+              payment_parts: paymentParts,
+            }
+          : event,
+      );
 
       return order;
     }

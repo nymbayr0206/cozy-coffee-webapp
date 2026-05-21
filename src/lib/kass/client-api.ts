@@ -41,6 +41,8 @@ import type {
   StockReceiptMutationResponse,
   StockReceiptsResponse,
   StockReceiptUpdateRequest,
+  UpdateOrderPaymentRequest,
+  UpdateOrderPaymentResponse,
   UomsResponse,
   UomDeleteResponse,
   UomFormRequest,
@@ -72,6 +74,7 @@ const errorMessages: Record<string, string> = {
   order_not_found: "Борлуулалтын бүртгэл олдсонгүй.",
   order_returned: "Энэ борлуулалт аль хэдийн буцаагдсан байна.",
   order_return_failed: "Борлуулалтын буцаалт хийхэд алдаа гарлаа.",
+  order_payment_update_failed: "Борлуулалтын төлбөр засахад алдаа гарлаа.",
   recipe_save_failed: "Барааны жор хадгалахад алдаа гарлаа.",
   session_not_found: "Ээлж олдсонгүй. Шинэ ээлж нээгээд дахин оролдоно уу.",
   session_already_open: "Касс дээр ээлж аль хэдийн нээгдсэн байна.",
@@ -351,6 +354,13 @@ export function validateLoyaltyCoupon(body: { qr_token: string; pin: string }) {
 export function returnKassOrder(reference: string | number) {
   return request<ReturnOrderResponse>(`/order/${encodeURIComponent(String(reference))}`, {
     method: "DELETE",
+  });
+}
+
+export function updateKassOrderPayment(reference: string | number, body: UpdateOrderPaymentRequest) {
+  return request<UpdateOrderPaymentResponse>(`/order/${encodeURIComponent(String(reference))}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
   });
 }
 
