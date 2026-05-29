@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowLeft,
   Bell,
   CakeSlice,
   ChevronRight,
@@ -27,7 +28,7 @@ import {
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type AuthMode = "login" | "register";
-type TabKey = "home" | "coupons" | "profile";
+type TabKey = "home" | "coupons" | "profile" | "orders" | "saved" | "info";
 
 interface CozyUserProfile {
   member_id?: number;
@@ -277,6 +278,18 @@ function ProductMedia({ product, large = false }: { product: CozyUserProduct; la
         </span>
       )}
     </div>
+  );
+}
+
+function DetailHeader({ title, onBack }: { title: string; onBack: () => void }) {
+  return (
+    <header className="profile-top">
+      <button className="round-icon-button" type="button" aria-label="Буцах" onClick={onBack}>
+        <ArrowLeft size={18} aria-hidden="true" />
+      </button>
+      <h1>{title}</h1>
+      <span />
+    </header>
   );
 }
 
@@ -696,19 +709,19 @@ export function CozyUserApp() {
             <header className="profile-top">
               <span />
               <h1>Профайл</h1>
-              <button className="round-icon-button" type="button" aria-label="Тохиргоо">
+              <button className="round-icon-button" type="button" aria-label="Тохиргоо" onClick={() => setActiveTab("info")}>
                 <Settings size={18} aria-hidden="true" />
               </button>
             </header>
 
-            <article className="profile-card">
+            <button className="profile-card profile-card-button" type="button" onClick={() => setActiveTab("info")}>
               <img src="/cozy-user-icon.png" alt="" />
               <div>
                 <strong>{profile.name}</strong>
                 <span>{profile.phone}</span>
               </div>
               <ChevronRight size={18} aria-hidden="true" />
-            </article>
+            </button>
 
             <div className="profile-stamp-list">
               {visibleStampCards.map((card) => {
@@ -736,14 +749,14 @@ export function CozyUserApp() {
 
             <div className="profile-menu">
               {[
-                ["Миний купонууд", Ticket],
-                ["Захиалгын түүх", Coffee],
-                ["Хадгалсан бүтээгдэхүүн", Heart],
-                ["Миний мэдээлэл", User],
-              ].map(([label, Icon]) => {
+                ["Миний купонууд", Ticket, () => setActiveTab("coupons")],
+                ["Захиалгын түүх", Coffee, () => setActiveTab("orders")],
+                ["Хадгалсан бүтээгдэхүүн", Heart, () => setActiveTab("saved")],
+                ["Миний мэдээлэл", User, () => setActiveTab("info")],
+              ].map(([label, Icon, onClick]) => {
                 const MenuIcon = Icon as typeof Ticket;
                 return (
-                  <button key={label as string} type="button">
+                  <button key={label as string} type="button" onClick={onClick as () => void}>
                     <MenuIcon size={19} aria-hidden="true" />
                     <span>{label as string}</span>
                     <ChevronRight size={18} aria-hidden="true" />
@@ -759,6 +772,59 @@ export function CozyUserApp() {
           </section>
         ) : null}
 
+        {activeTab === "orders" ? (
+          <section className="profile-screen">
+            <DetailHeader title="Захиалгын түүх" onBack={() => setActiveTab("profile")} />
+            <article className="profile-detail-card">
+              <Coffee size={26} aria-hidden="true" />
+              <div>
+                <h2>Одоогоор захиалга алга</h2>
+                <p>Кассаар худалдан авалт хийхдээ утасны дугаараа бүртгүүлсний дараа захиалгын түүх энд харагдана.</p>
+              </div>
+            </article>
+          </section>
+        ) : null}
+
+        {activeTab === "saved" ? (
+          <section className="profile-screen">
+            <DetailHeader title="Хадгалсан бүтээгдэхүүн" onBack={() => setActiveTab("profile")} />
+            <article className="profile-detail-card">
+              <Heart size={26} aria-hidden="true" />
+              <div>
+                <h2>Хадгалсан бүтээгдэхүүн алга</h2>
+                <p>Дуртай бүтээгдэхүүн хадгалах боломж нэмэгдэхээр таны сонголтууд энд жагсана.</p>
+              </div>
+            </article>
+          </section>
+        ) : null}
+
+        {activeTab === "info" ? (
+          <section className="profile-screen">
+            <DetailHeader title="Миний мэдээлэл" onBack={() => setActiveTab("profile")} />
+            <article className="profile-detail-card user-info-card">
+              <User size={26} aria-hidden="true" />
+              <div>
+                <h2>{profile.name}</h2>
+                <p>{profile.phone}</p>
+              </div>
+            </article>
+            <div className="profile-info-list">
+              <div>
+                <span>Хэрэглэгчийн ID</span>
+                <strong>{profile.member_id ?? "-"}</strong>
+              </div>
+              <div>
+                <span>Odoo partner</span>
+                <strong>{profile.partner_id ?? "-"}</strong>
+              </div>
+              <div>
+                <span>Идэвхтэй купон</span>
+                <strong>{activeCoupons.length}</strong>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
         <nav className="user-bottom-nav" aria-label="User app menu">
           {[
             ["home", "Нүүр", Home],
@@ -767,10 +833,11 @@ export function CozyUserApp() {
           ].map(([key, label, Icon]) => {
             const NavIcon = Icon as typeof Home;
             const tabKey = key as TabKey;
+            const isProfileChild = tabKey === "profile" && ["orders", "saved", "info"].includes(activeTab);
             return (
               <button
                 key={tabKey}
-                className={activeTab === tabKey ? "active" : ""}
+                className={activeTab === tabKey || isProfileChild ? "active" : ""}
                 type="button"
                 onClick={() => setActiveTab(tabKey)}
               >
