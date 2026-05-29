@@ -2,16 +2,21 @@
 
 import {
   Bell,
-  Check,
+  CakeSlice,
   ChevronRight,
   Coffee,
+  Croissant,
+  CupSoda,
   Gift,
   Heart,
   Home,
+  IceCreamBowl,
+  Leaf,
   LockKeyhole,
   LogOut,
+  Milk,
+  Package,
   Phone,
-  Plus,
   QrCode,
   RotateCcw,
   Settings,
@@ -39,6 +44,15 @@ interface CozyUserCoupon {
   expires_at?: string | null;
 }
 
+interface CozyUserStampCard {
+  id?: number;
+  rule_id: number;
+  name: string;
+  stamp_count: number;
+  stamp_target?: number;
+  stamp_per_unit?: number;
+}
+
 interface CozyUserWallet {
   member: {
     id: number;
@@ -47,20 +61,25 @@ interface CozyUserWallet {
     phone: string;
     stamp_count: number;
   };
+  stamp_cards?: CozyUserStampCard[];
   coupons: CozyUserCoupon[];
+}
+
+interface CozyUserProduct {
+  id: number;
+  name: string;
+  sale_price: number;
+  category?: string | null;
+  default_code?: string | null;
+  description?: string | null;
+  image_base64?: string | null;
+  available_for_sale?: boolean;
 }
 
 const PROFILE_KEY = "cozy.user.profile";
 const STAMPS_KEY = "cozy.user.stamps";
 const STAMP_TARGET = 9;
 const DEFAULT_STAMPS = 7;
-
-const products = [
-  { name: "Ваниль латте", price: "6,500₮", className: "latte" },
-  { name: "Карамель латте", price: "6,500₮", className: "caramel" },
-  { name: "Мокка", price: "6,500₮", className: "mocha" },
-  { name: "Айс американо", price: "5,000₮", className: "iced" },
-];
 
 function readProfile() {
   if (typeof window === "undefined") return null;
@@ -106,6 +125,66 @@ async function userLoyaltyRequest<T>(path: string, init?: RequestInit) {
   return payload as T;
 }
 
+async function fetchUserProducts(signal?: AbortSignal) {
+  const response = await fetch("/api/kass/products?scope=pos", {
+    cache: "no-store",
+    signal,
+    headers: { Accept: "application/json" },
+  });
+  const payload = (await response.json().catch(() => null)) as { products?: CozyUserProduct[] } | null;
+
+  if (!response.ok) {
+    throw new Error("Бүтээгдэхүүн уншиж чадсангүй.");
+  }
+
+  return (payload?.products ?? []).filter(
+    (product) =>
+      product.available_for_sale !== false &&
+      Number(product.sale_price) > 0 &&
+      product.default_code !== "COZY-FREE-COFFEE-COUPON" &&
+      product.category !== "Coupon",
+  );
+}
+
+function formatProductPrice(value: number) {
+  const amount = Math.max(0, Math.round(Number(value) || 0));
+  return `${new Intl.NumberFormat("mn-MN").format(amount)}₮`;
+}
+
+function productImageSrc(product: CozyUserProduct) {
+  const image = product.image_base64?.trim();
+  if (!image) return null;
+  return image.startsWith("data:image") ? image : `data:image/png;base64,${image}`;
+}
+
+function productIconMeta(product: CozyUserProduct): { Icon: typeof Coffee; kind: string } {
+  const text = `${product.name} ${product.category ?? ""} ${product.description ?? ""}`.toLocaleLowerCase("mn-MN");
+
+  if (text.includes("coffee") || text.includes("кофе") || text.includes("americano") || text.includes("latte") || text.includes("mocha")) {
+    return { Icon: Coffee, kind: "coffee" };
+  }
+  if (text.includes("tea") || text.includes("цай")) {
+    return { Icon: Leaf, kind: "tea" };
+  }
+  if (text.includes("smoothie") || text.includes("lemonade") || text.includes("bubble")) {
+    return { Icon: CupSoda, kind: "drink" };
+  }
+  if (text.includes("frappe") || text.includes("ice") || text.includes("айс")) {
+    return { Icon: IceCreamBowl, kind: "cold" };
+  }
+  if (text.includes("milk") || text.includes("сүү")) {
+    return { Icon: Milk, kind: "milk" };
+  }
+  if (text.includes("croissant")) {
+    return { Icon: Croissant, kind: "dessert" };
+  }
+  if (text.includes("cake") || text.includes("dessert") || text.includes("cookie") || text.includes("амттан")) {
+    return { Icon: CakeSlice, kind: "dessert" };
+  }
+
+  return { Icon: Package, kind: "package" };
+}
+
 function profileFromWallet(wallet: CozyUserWallet): CozyUserProfile {
   return {
     member_id: wallet.member.id,
@@ -115,11 +194,65 @@ function profileFromWallet(wallet: CozyUserWallet): CozyUserProfile {
   };
 }
 
-function StampRow({ count, compact = false }: { count: number; compact?: boolean }) {
+function stampTarget(card?: Pick<CozyUserStampCard, "stamp_target">) {
+  const target = Math.trunc(Number(card?.stamp_target ?? STAMP_TARGET));
+  return Number.isFinite(target) && target > 0 ? target : STAMP_TARGET;
+}
+
+function clampStampCount(count: number, target = STAMP_TARGET) {
+  const safeCount = Math.trunc(Number(count));
+  return Number.isFinite(safeCount) ? Math.min(Math.max(safeCount, 0), target) : 0;
+}
+
+function stampCardsFromWallet(wallet: CozyUserWallet): CozyUserStampCard[] {
+  const cards = (wallet.stamp_cards ?? [])
+    .filter((card) => card && typeof card.name === "string")
+    .map((card) => {
+      const target = stampTarget(card);
+      return {
+        ...card,
+        stamp_count: clampStampCount(card.stamp_count, target),
+        stamp_target: target,
+      };
+    });
+
+  if (cards.length > 0) return cards;
+
+  return [
+    {
+      rule_id: 0,
+      name: "9 кофе авбал 1 үнэгүй кофе",
+      stamp_count: clampStampCount(wallet.member.stamp_count),
+      stamp_target: STAMP_TARGET,
+    },
+  ];
+}
+
+function primaryStampCount(cards: CozyUserStampCard[], fallback: number) {
+  return cards[0] ? clampStampCount(cards[0].stamp_count, stampTarget(cards[0])) : clampStampCount(fallback);
+}
+
+function stampRemaining(card: CozyUserStampCard) {
+  return Math.max(stampTarget(card) - clampStampCount(card.stamp_count, stampTarget(card)), 0);
+}
+
+function stampProgress(card: CozyUserStampCard) {
+  const target = stampTarget(card);
+  return (clampStampCount(card.stamp_count, target) / target) * 100;
+}
+
+function StampRow({ count, target = STAMP_TARGET, compact = false }: { count: number; target?: number; compact?: boolean }) {
+  const safeTarget = stampTarget({ stamp_target: target });
+  const safeCount = clampStampCount(count, safeTarget);
+
   return (
-    <div className={compact ? "user-stamps compact" : "user-stamps"} aria-label={`${count} / ${STAMP_TARGET} тамга`}>
-      {Array.from({ length: STAMP_TARGET }).map((_, index) => {
-        const filled = index < count;
+    <div
+      className={compact ? "user-stamps compact" : "user-stamps"}
+      style={{ gridTemplateColumns: `repeat(${safeTarget}, minmax(0, 1fr))` }}
+      aria-label={`${safeCount} / ${safeTarget} тамга`}
+    >
+      {Array.from({ length: safeTarget }).map((_, index) => {
+        const filled = index < safeCount;
         return (
           <span key={index} className={filled ? "stamp-dot filled" : "stamp-dot"}>
             {filled ? <Coffee size={compact ? 10 : 12} strokeWidth={2.5} aria-hidden="true" /> : null}
@@ -130,12 +263,19 @@ function StampRow({ count, compact = false }: { count: number; compact?: boolean
   );
 }
 
-function ProductArt({ variant }: { variant: string }) {
+function ProductMedia({ product, large = false }: { product: CozyUserProduct; large?: boolean }) {
+  const src = productImageSrc(product);
+  const { Icon, kind } = productIconMeta(product);
+
   return (
-    <div className={`drink-art ${variant}`} aria-hidden="true">
-      <span className="drink-cup">
-        <span />
-      </span>
+    <div className={large ? "user-product-media large" : "user-product-media"}>
+      {src ? (
+        <img src={src} alt={product.name} />
+      ) : (
+        <span className={`user-product-placeholder ${kind}`} aria-hidden="true">
+          <Icon size={large ? 42 : 30} strokeWidth={2.3} />
+        </span>
+      )}
     </div>
   );
 }
@@ -149,15 +289,48 @@ export function CozyUserApp() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [stamps, setStamps] = useState(DEFAULT_STAMPS);
+  const [stampCards, setStampCards] = useState<CozyUserStampCard[]>([]);
   const [coupons, setCoupons] = useState<CozyUserCoupon[]>([]);
+  const [userProducts, setUserProducts] = useState<CozyUserProduct[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [productsError, setProductsError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [qrLoadingCouponId, setQrLoadingCouponId] = useState<number | null>(null);
   const [couponQr, setCouponQr] = useState<{ couponId: number; image: string; token: string } | null>(null);
   const [message, setMessage] = useState("");
 
-  const remaining = Math.max(STAMP_TARGET - stamps, 0);
-  const progress = useMemo(() => (stamps / STAMP_TARGET) * 100, [stamps]);
+  const visibleStampCards = useMemo<CozyUserStampCard[]>(
+    () =>
+      stampCards.length > 0
+        ? stampCards
+        : [
+            {
+              rule_id: 0,
+              name: "9 кофе авбал 1 үнэгүй кофе",
+              stamp_count: clampStampCount(stamps),
+              stamp_target: STAMP_TARGET,
+            },
+          ],
+    [stampCards, stamps],
+  );
   const activeCoupons = useMemo(() => coupons.filter((coupon) => coupon.state === "available"), [coupons]);
+  const featuredProduct = userProducts.find((product) => productImageSrc(product)) ?? userProducts[0] ?? null;
+  const stripProducts = userProducts.slice(0, 8);
+
+  function applyWallet(wallet: CozyUserWallet) {
+    const cards = stampCardsFromWallet(wallet);
+    const nextProfile = profileFromWallet(wallet);
+    const nextStampCount = primaryStampCount(cards, wallet.member.stamp_count);
+
+    setProfile(nextProfile);
+    setStamps(nextStampCount);
+    setStampCards(cards);
+    setCoupons(wallet.coupons ?? []);
+    window.localStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+    window.localStorage.setItem(STAMPS_KEY, String(nextStampCount));
+
+    return nextProfile;
+  }
 
   useEffect(() => {
     const storedProfile = readProfile();
@@ -170,12 +343,7 @@ export function CozyUserApp() {
       if (storedProfile.member_id) {
         void userLoyaltyRequest<{ ok: boolean } & CozyUserWallet>(`/wallet?member_id=${encodeURIComponent(storedProfile.member_id)}`)
           .then((wallet) => {
-            const nextProfile = profileFromWallet(wallet);
-            setProfile(nextProfile);
-            setStamps(wallet.member.stamp_count);
-            setCoupons(wallet.coupons ?? []);
-            window.localStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
-            window.localStorage.setItem(STAMPS_KEY, String(wallet.member.stamp_count));
+            applyWallet(wallet);
           })
           .catch((error: unknown) => {
             setMessage(error instanceof Error ? error.message : "Odoo loyalty wallet уншиж чадсангүй.");
@@ -189,6 +357,26 @@ export function CozyUserApp() {
     if (!hydrated) return;
     window.localStorage.setItem(STAMPS_KEY, String(stamps));
   }, [hydrated, stamps]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setProductsLoading(true);
+    setProductsError("");
+
+    void fetchUserProducts(controller.signal)
+      .then((nextProducts) => {
+        setUserProducts(nextProducts);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setProductsError(error instanceof Error ? error.message : "Бүтээгдэхүүн уншиж чадсангүй.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setProductsLoading(false);
+      });
+
+    return () => controller.abort();
+  }, []);
 
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -205,15 +393,10 @@ export function CozyUserApp() {
           pin: password,
         }),
       });
-      const nextProfile = profileFromWallet(wallet);
+      const nextProfile = applyWallet(wallet);
 
-      window.localStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
-      window.localStorage.setItem(STAMPS_KEY, String(wallet.member.stamp_count));
-      setProfile(nextProfile);
       setName(nextProfile.name);
       setPhone(nextProfile.phone);
-      setStamps(wallet.member.stamp_count);
-      setCoupons(wallet.coupons ?? []);
       setCouponQr(null);
       setMessage(authMode === "register" ? "Бүртгэл амжилттай. Таны loyalty карт Odoo дээр үүслээ." : "Тавтай морил.");
       setPassword("");
@@ -224,37 +407,11 @@ export function CozyUserApp() {
     }
   }
 
-  async function handleAddStamp() {
-    if (!profile?.member_id) return;
-
-    try {
-      const wallet = await userLoyaltyRequest<{ ok: boolean } & CozyUserWallet>("/purchase", {
-        method: "POST",
-        body: JSON.stringify({
-          member_id: profile.member_id,
-          coffee_quantity: 1,
-        }),
-      });
-      setStamps(wallet.member.stamp_count);
-      setCoupons(wallet.coupons ?? []);
-      window.localStorage.setItem(STAMPS_KEY, String(wallet.member.stamp_count));
-      setMessage("Нэг кофе Odoo дээр бүртгэгдэж, тамга шинэчлэгдлээ.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Тамга нэмэхэд алдаа гарлаа.");
-    }
-  }
-
-  function handleRedeem() {
-    setActiveTab("coupons");
-    setMessage("Идэвхтэй купоноос QR үүсгээд касс дээр уншуулна уу.");
-  }
-
   function handleResetDemo() {
     if (!profile?.member_id) return;
     void userLoyaltyRequest<{ ok: boolean } & CozyUserWallet>(`/wallet?member_id=${encodeURIComponent(profile.member_id)}`)
       .then((wallet) => {
-        setStamps(wallet.member.stamp_count);
-        setCoupons(wallet.coupons ?? []);
+        applyWallet(wallet);
         setMessage("Odoo wallet дахин уншигдлаа.");
       })
       .catch((error: unknown) => {
@@ -265,6 +422,7 @@ export function CozyUserApp() {
   function handleLogout() {
     setProfile(null);
     setAuthMode("login");
+    setStampCards([]);
     setMessage("");
   }
 
@@ -403,33 +561,32 @@ export function CozyUserApp() {
               </button>
             </header>
 
-            <section className="loyalty-card">
+            {visibleStampCards.map((card) => {
+              const target = stampTarget(card);
+              const count = clampStampCount(card.stamp_count, target);
+              const remaining = stampRemaining(card);
+              const progress = stampProgress(card);
+
+              return (
+                <section className="loyalty-card" key={`${card.rule_id}-${card.id ?? card.name}`}>
               <div className="loyalty-heading">
                 <h1>9 кофе авбал 1 үнэгүй кофе авна уу!</h1>
                 <button className="round-icon-button small" type="button" aria-label="Бэлэг">
                   <Gift size={17} aria-hidden="true" />
                 </button>
               </div>
-              <StampRow count={stamps} />
+              <p className="loyalty-rule-name">{card.name}</p>
+              <StampRow count={count} target={target} />
               <div className="loyalty-meta">
-                <strong>{stamps} / {STAMP_TARGET}</strong>
-                <span>{activeCoupons.length > 0 ? `${activeCoupons.length} купон бэлэн байна` : `${remaining} тамга дутуу байна`}</span>
+                <strong>{count} / {target}</strong>
+                <span>{`${remaining} тамга дутуу байна`}</span>
               </div>
               <div className="loyalty-track" aria-hidden="true">
                 <span style={{ width: `${progress}%` }} />
               </div>
-              <div className="loyalty-actions">
-                <button className="user-secondary-button" type="button" onClick={() => void handleAddStamp()}>
-                  <Plus size={16} aria-hidden="true" />
-                  Тамга нэмэх
-                </button>
-                <button className="user-primary-button compact" type="button" onClick={handleRedeem} disabled={activeCoupons.length === 0}>
-                  <Check size={16} aria-hidden="true" />
-                  Купон QR авах
-                </button>
-              </div>
-              {message ? <p className="user-message">{message}</p> : null}
-            </section>
+                </section>
+              );
+            })}
 
             <section className="promo-card">
               <div>
@@ -446,14 +603,18 @@ export function CozyUserApp() {
 
             <section className="daily-card">
               <h2>Өнөөдрийн санал</h2>
-              <div className="daily-product">
-                <ProductArt variant="latte large" />
-                <div>
-                  <strong>Латте</strong>
-                  <span>Таны өдрийг эхлүүлэх дуртай сонголт</span>
-                  <b>6,500₮</b>
+              {featuredProduct ? (
+                <div className="daily-product">
+                  <ProductMedia product={featuredProduct} large />
+                  <div>
+                    <strong>{featuredProduct.name}</strong>
+                    <span>{featuredProduct.description || featuredProduct.category || "Cozy Coffee"}</span>
+                    <b>{formatProductPrice(featuredProduct.sale_price)}</b>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="user-message">{productsLoading ? "Бүтээгдэхүүн уншиж байна." : productsError || "Бүтээгдэхүүн олдсонгүй."}</div>
+              )}
             </section>
 
             <section className="product-strip-section">
@@ -462,13 +623,17 @@ export function CozyUserApp() {
                 <button type="button">Бүгдийг харах</button>
               </div>
               <div className="product-strip">
-                {products.map((product) => (
-                  <article key={product.name} className="mini-product-card">
-                    <ProductArt variant={product.className} />
+                {stripProducts.map((product) => (
+                  <article key={product.id} className="mini-product-card">
+                    <ProductMedia product={product} />
                     <strong>{product.name}</strong>
-                    <span>{product.price}</span>
+                    <span>{formatProductPrice(product.sale_price)}</span>
                   </article>
                 ))}
+                {productsLoading ? <div className="product-strip-status">Бүтээгдэхүүн уншиж байна.</div> : null}
+                {!productsLoading && stripProducts.length === 0 ? (
+                  <div className="product-strip-status">{productsError || "Бүтээгдэхүүн олдсонгүй."}</div>
+                ) : null}
               </div>
             </section>
           </>
@@ -545,18 +710,29 @@ export function CozyUserApp() {
               <ChevronRight size={18} aria-hidden="true" />
             </article>
 
-            <article className="profile-stamp-card">
+            <div className="profile-stamp-list">
+              {visibleStampCards.map((card) => {
+                const target = stampTarget(card);
+                const count = clampStampCount(card.stamp_count, target);
+                const remaining = stampRemaining(card);
+
+                return (
+            <article className="profile-stamp-card" key={`${card.rule_id}-${card.id ?? card.name}`}>
               <div>
                 <h2>Таны тамга</h2>
-                <strong>{stamps} / {STAMP_TARGET}</strong>
+                <strong>{count} / {target}</strong>
               </div>
-              <StampRow count={stamps} compact />
+              <p className="profile-rule-name">{card.name}</p>
+              <StampRow count={count} target={target} compact />
               <p>{remaining === 0 ? "Та 1 үнэгүй кофе авахад бэлэн байна." : `${remaining} тамга дутуу байна. Та 1 үнэгүй кофе авахад ойрхон байна!`}</p>
               <button className="user-secondary-button" type="button" onClick={handleResetDemo}>
                 <RotateCcw size={16} aria-hidden="true" />
                 Odoo wallet сэргээх
               </button>
             </article>
+                );
+              })}
+            </div>
 
             <div className="profile-menu">
               {[

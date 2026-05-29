@@ -5,6 +5,7 @@ import {
   createOdooSaleOrder,
   linkOdooQpayTransactionToSaleOrder,
   previewOdooRecipeStockConsumption,
+  recordOdooLoyaltyPurchase,
   redeemOdooLoyaltyCoupon,
   validateOdooLoyaltyCoupon,
 } from "@/lib/kass/odoo";
@@ -30,6 +31,8 @@ interface CreateOrderBody {
   qpay_transaction_id?: unknown;
   coupon_qr_token?: unknown;
   coupon_pin?: unknown;
+  loyalty_phone?: unknown;
+  loyalty_coffee_quantity?: unknown;
 }
 
 export async function POST(request: Request) {
@@ -57,6 +60,12 @@ export async function POST(request: Request) {
         : null;
     const couponQrToken = couponPayment ? requireString(body.coupon_qr_token, "coupon_qr_token") : null;
     const couponPin = couponPayment ? requireString(body.coupon_pin, "coupon_pin") : null;
+    const loyaltyPhone =
+      typeof body.loyalty_phone === "string" && body.loyalty_phone.trim() ? body.loyalty_phone.trim() : null;
+    const loyaltyCoffeeQuantity =
+      loyaltyPhone && body.loyalty_coffee_quantity !== undefined && body.loyalty_coffee_quantity !== null
+        ? Math.trunc(parseNumber(body.loyalty_coffee_quantity, "loyalty_coffee_quantity", { min: 0 }))
+        : 0;
 
     if (creditPayment && !partnerId) {
       throw new KassServerError("validation_error", "Зээлээр бүртгэх харилцагч сонгоно уу.", 400);
@@ -82,6 +91,14 @@ export async function POST(request: Request) {
         order_ref: odooOrderId,
       });
     }
+    const loyaltyResult =
+      loyaltyPhone
+        ? await recordOdooLoyaltyPurchase({
+            phone: loyaltyPhone,
+            coffee_quantity: loyaltyCoffeeQuantity,
+            lines,
+          })
+        : null;
 
     const order = addOrder({
       order_id: odooOrderId,
@@ -98,7 +115,19 @@ export async function POST(request: Request) {
       created_at: new Date().toISOString(),
     });
 
-    return NextResponse.json(order, { status: 201 });
+    return NextResponse.json(
+      {
+        ...order,
+        loyalty: loyaltyResult
+          ? {
+              phone: loyaltyPhone,
+              coffee_quantity: loyaltyResult.stamp_quantity ?? loyaltyCoffeeQuantity,
+              ...loyaltyResult,
+            }
+          : null,
+      },
+      { status: 201 },
+    );
   } catch (error) {
     return jsonError(error);
   }

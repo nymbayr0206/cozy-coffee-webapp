@@ -2568,6 +2568,14 @@ export interface CozyLoyaltyWallet {
     phone: string;
     stamp_count: number;
   };
+  stamp_cards?: Array<{
+    id?: number;
+    rule_id: number;
+    name: string;
+    stamp_count: number;
+    stamp_target?: number;
+    stamp_per_unit?: number;
+  }>;
   coupons: Array<{
     id: number;
     code: string;
@@ -2578,6 +2586,19 @@ export interface CozyLoyaltyWallet {
     expires_at?: string | null;
     used_at?: string | null;
   }>;
+  stamp_quantity?: number;
+  stamp_quantities?: Record<string, number>;
+}
+
+export interface CozyLoyaltyStampRule {
+  id: number;
+  name: string;
+  stamp_per_unit: number;
+  pos_category_ids?: number[];
+  pos_category_names?: string[];
+  product_category_ids?: number[];
+  product_category_names?: string[];
+  product_ids?: number[];
 }
 
 export interface CozyCouponValidation {
@@ -2603,7 +2624,16 @@ export function fetchOdooLoyaltyWallet(memberId: number) {
   return callCozyLoyalty<CozyLoyaltyWallet>("cozy.loyalty.member", "api_wallet", [memberId]);
 }
 
-export function recordOdooLoyaltyPurchase(input: { member_id?: number | null; phone?: string | null; coffee_quantity: number }) {
+export function getOdooLoyaltyStampRules() {
+  return callCozyLoyalty<{ ok: boolean; rules: CozyLoyaltyStampRule[] }>("cozy.loyalty.member", "api_stamp_rules");
+}
+
+export function recordOdooLoyaltyPurchase(input: {
+  member_id?: number | null;
+  phone?: string | null;
+  coffee_quantity?: number;
+  lines?: Array<{ product_id: number; quantity: number; price?: number }>;
+}) {
   return callCozyLoyalty<CozyLoyaltyWallet>("cozy.loyalty.member", "api_record_purchase", [input]);
 }
 

@@ -28,3 +28,30 @@ def post_init_hook(env):
         product = env["product.product"].create(values)
 
     env["ir.config_parameter"].sudo().set_param("cozy_loyalty.reward_product_id", str(product.id))
+
+    default_rule_names = [
+        ("Coffee", ["Кофе", "Coffee"]),
+        ("Smoothie", ["Smoothie"]),
+        ("Frappe", ["Frappe"]),
+    ]
+    Rule = env["cozy.loyalty.stamp.rule"].sudo()
+    PosCategory = env["pos.category"].sudo()
+    for rule_name, category_names in default_rule_names:
+        categories = PosCategory.browse()
+        for category_name in category_names:
+            category = PosCategory.search([("name", "=", category_name)], limit=1)
+            if category:
+                categories |= category
+        if not categories:
+            continue
+
+        existing = Rule.search([("name", "=", rule_name)], limit=1)
+        values = {
+            "name": rule_name,
+            "stamp_per_unit": 1,
+            "pos_category_ids": [(6, 0, categories.ids)],
+        }
+        if existing:
+            existing.write(values)
+        else:
+            Rule.create(values)

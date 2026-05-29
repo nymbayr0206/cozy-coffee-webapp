@@ -396,6 +396,8 @@ export interface CartItem {
   product_id: number;
   name: string;
   category?: string | null;
+  pos_category_ids?: number[];
+  pos_categories?: string[];
   barcode?: string | null;
   quantity: number;
   price: number;
@@ -418,6 +420,8 @@ export interface CreateOrderRequest {
   qpay_transaction_id?: number | null;
   coupon_qr_token?: string | null;
   coupon_pin?: string | null;
+  loyalty_phone?: string | null;
+  loyalty_coffee_quantity?: number | null;
 }
 
 export interface CreateOrderResponse {
@@ -430,6 +434,29 @@ export interface CreateOrderResponse {
   total?: number;
   status?: "active" | "returned";
   returned_at?: string;
+  loyalty?: {
+    phone: string;
+    coffee_quantity: number;
+    member?: {
+      id?: number;
+      partner_id?: number;
+      name?: string;
+      phone?: string;
+      stamp_count?: number;
+    };
+    stamp_cards?: Array<{
+      id?: number;
+      rule_id: number;
+      name: string;
+      stamp_count: number;
+      stamp_target?: number;
+      stamp_per_unit?: number;
+    }>;
+    coupons?: unknown[];
+    stamp_quantity?: number;
+    stamp_quantities?: Record<string, number>;
+  } | null;
+  loyalty_error?: string | null;
   order?: {
     id?: string | number;
     order_id?: string | number;
@@ -443,6 +470,41 @@ export interface CreateOrderResponse {
     returned_at?: string;
   };
   [key: string]: unknown;
+}
+
+export interface LoyaltyCustomerLookupResponse {
+  ok: boolean;
+  customer: {
+    member_id: number;
+    partner_id: number;
+    name: string;
+    phone: string;
+    stamp_count: number;
+    stamp_cards?: Array<{
+      id?: number;
+      rule_id: number;
+      name: string;
+      stamp_count: number;
+      stamp_target?: number;
+      stamp_per_unit?: number;
+    }>;
+  };
+}
+
+export interface LoyaltyStampRule {
+  id: number;
+  name: string;
+  stamp_per_unit: number;
+  pos_category_ids?: number[];
+  pos_category_names?: string[];
+  product_category_ids?: number[];
+  product_category_names?: string[];
+  product_ids?: number[];
+}
+
+export interface LoyaltyStampRulesResponse {
+  ok: boolean;
+  rules: LoyaltyStampRule[];
 }
 
 export interface ReturnOrderResponse {

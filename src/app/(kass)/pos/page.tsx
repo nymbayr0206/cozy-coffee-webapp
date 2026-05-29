@@ -35,6 +35,8 @@ export default function PosPage() {
           product_id: product.id,
           name: product.name,
           category: product.category,
+          pos_category_ids: product.pos_category_ids,
+          pos_categories: product.pos_categories,
           barcode: product.barcode,
           price: Number(product.sale_price ?? 0),
           quantity: 1,
