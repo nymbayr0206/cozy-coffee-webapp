@@ -55,6 +55,110 @@ function explainError(error) {
   return ["UNKNOWN_ERROR", message];
 }
 
+function roundMoney(value) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function findValue(source, keys) {
+  if (!source || typeof source !== "object") return "";
+
+  const wanted = new Set(keys.map((key) => key.toLowerCase()));
+  const queue = [source];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== "object") continue;
+
+    for (const [key, value] of Object.entries(current)) {
+      if (wanted.has(key.toLowerCase()) && value !== null && value !== undefined && String(value).trim()) {
+        return String(value).trim();
+      }
+
+      if (value && typeof value === "object") {
+        queue.push(value);
+      }
+    }
+  }
+
+  return "";
+}
+
+function requiredSetting(name, value, hint) {
+  if (value) return value;
+  throw new Error(`${name} is required. ${hint}`);
+}
+
+function buildTestReceiptPayload(posInfo) {
+  const totalAmount = 1000;
+  const totalVAT = roundMoney(totalAmount / 11);
+  const totalCityTax = 0;
+  const merchantTin = requiredSetting(
+    "EBARIMT_MERCHANT_TIN",
+    process.env.EBARIMT_MERCHANT_TIN || findValue(posInfo, ["merchantTin", "merchant_tin", "tin", "regNo"]),
+    "Set it in .env if /rest/info does not return merchant TIN.",
+  );
+  const posNo = requiredSetting(
+    "EBARIMT_POS_NO",
+    process.env.EBARIMT_POS_NO || findValue(posInfo, ["posNo", "posno", "posNumber", "pos_no"]),
+    "Set it in .env if /rest/info does not return POS number.",
+  );
+  const districtCode = requiredSetting(
+    "EBARIMT_DISTRICT_CODE",
+    process.env.EBARIMT_DISTRICT_CODE || findValue(posInfo, ["districtCode", "district_code", "district"]),
+    "Set it in .env if /rest/info does not return district code.",
+  );
+  const branchNo = requiredSetting(
+    "EBARIMT_BRANCH_NO",
+    process.env.EBARIMT_BRANCH_NO || findValue(posInfo, ["branchNo", "branch_no", "branch"]),
+    "Set it in .env if /rest/info does not return branch number.",
+  );
+  const classificationCode = process.env.EBARIMT_TEST_CLASSIFICATION_CODE || "5610100";
+  const receiptNumber = `COZY-TEST-${Date.now()}`;
+
+  return {
+    totalAmount,
+    totalVAT,
+    totalCityTax,
+    districtCode,
+    merchantTin,
+    posNo,
+    branchNo,
+    type: "B2C_RECEIPT",
+    billIdSuffix: receiptNumber,
+    receipts: [
+      {
+        totalAmount,
+        totalVAT,
+        totalCityTax,
+        taxType: "VAT_ABLE",
+        merchantTin,
+        items: [
+          {
+            name: "Тест кофе",
+            barCode: "",
+            barCodeType: "UNDEFINED",
+            classificationCode,
+            measureUnit: "ш",
+            qty: 1,
+            unitPrice: totalAmount,
+            totalAmount,
+            totalVAT,
+            totalCityTax,
+            taxType: "VAT_ABLE",
+          },
+        ],
+      },
+    ],
+    payments: [
+      {
+        code: "CASH",
+        paidAmount: totalAmount,
+        status: "PAID",
+      },
+    ],
+  };
+}
+
 async function requestJson(pathname, options = {}) {
   const { baseUrl, timeoutMs } = getConfig();
   const controller = new AbortController();
@@ -85,6 +189,7 @@ async function requestJson(pathname, options = {}) {
 
 async function main() {
   const command = process.argv[2] || "info";
+  const flags = new Set(process.argv.slice(3));
   const { baseUrl, timeoutMs } = getConfig();
 
   console.log(`[eBarimt] mode=direct baseUrl=${baseUrl} timeoutMs=${timeoutMs}`);
@@ -104,7 +209,29 @@ async function main() {
       return;
     }
 
-    throw new Error(`Unknown command: ${command}. Use "info" or "send-data".`);
+    if (command === "test-receipt") {
+      if (!flags.has("--confirm")) {
+        console.log("[eBarimt] Test receipt is a real POST /rest/receipt request.");
+        console.log("[eBarimt] Run with --confirm when PosAPI test environment is ready:");
+        console.log("npm run ebarimt:test-receipt -- --confirm");
+        return;
+      }
+
+      const info = await requestJson("/rest/info");
+      const payload = buildTestReceiptPayload(info);
+      console.log("[eBarimt] Sending test receipt payload:");
+      console.log(JSON.stringify(payload, null, 2));
+
+      const result = await requestJson("/rest/receipt", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      console.log("[eBarimt] PosAPI /rest/receipt OK");
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    throw new Error(`Unknown command: ${command}. Use "info", "send-data", or "test-receipt".`);
   } catch (error) {
     const [code, friendly] = explainError(error);
     console.error(`[eBarimt] ${code}`);

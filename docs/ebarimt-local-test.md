@@ -20,6 +20,7 @@ EBARIMT_MERCHANT_TIN=
 EBARIMT_POS_NO=
 EBARIMT_DISTRICT_CODE=
 EBARIMT_BRANCH_NO=
+EBARIMT_TEST_CLASSIFICATION_CODE=5610100
 EBARIMT_AUTO_SEND=false
 EBARIMT_RETRY_FAILED=true
 ```
@@ -50,6 +51,36 @@ npm run ebarimt:send-data
 ```
 
 This calls `GET /rest/sendData`.
+
+## Send test receipt
+
+Use this only after connection works. It sends a real `POST /rest/receipt` request to the local PosAPI test setup:
+
+```powershell
+npm run ebarimt:test-receipt -- --confirm
+```
+
+The test receipt is:
+
+- Product: `Тест кофе`
+- Quantity: `1`
+- Total amount: `1000`
+- VAT: `1000 / 11`
+- City tax: `0`
+- Payment: `CASH`
+
+Without `--confirm`, the command only prints a warning and does not create a receipt:
+
+```powershell
+npm run ebarimt:test-receipt
+```
+
+If `/rest/info` does not include merchant, POS, district, or branch values, fill these in `.env` before sending:
+
+- `EBARIMT_MERCHANT_TIN`
+- `EBARIMT_POS_NO`
+- `EBARIMT_DISTRICT_CODE`
+- `EBARIMT_BRANCH_NO`
 
 ## Important
 
