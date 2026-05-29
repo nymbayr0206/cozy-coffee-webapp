@@ -5,6 +5,8 @@
   "scripts": {
     "clean": "node scripts/clean-next.mjs",
     "dev": "next dev",
+    "ebarimt:info": "node scripts/ebarimt-posapi-smoke.mjs info",
+    "ebarimt:send-data": "node scripts/ebarimt-posapi-smoke.mjs send-data",
     "prebuild": "node scripts/clean-next.mjs",
     "build": "next build",
     "start": "next start",
