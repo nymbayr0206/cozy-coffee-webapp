@@ -88,10 +88,18 @@ function requiredSetting(name, value, hint) {
   throw new Error(`${name} is required. ${hint}`);
 }
 
+function envFlag(name, defaultValue = false) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return defaultValue;
+  return ["1", "true", "yes", "y"].includes(raw.toLowerCase());
+}
+
 function buildTestReceiptPayload(posInfo) {
   const totalAmount = 1000;
-  const totalVAT = roundMoney(totalAmount / 11);
+  const vatRegistered = envFlag("EBARIMT_VAT_REGISTERED", false);
+  const totalVAT = vatRegistered ? roundMoney(totalAmount / 11) : 0;
   const totalCityTax = 0;
+  const taxType = process.env.EBARIMT_TEST_TAX_TYPE || (vatRegistered ? "VAT_ABLE" : "VAT_FREE");
   const merchantTin = requiredSetting(
     "EBARIMT_MERCHANT_TIN",
     process.env.EBARIMT_MERCHANT_TIN || findValue(posInfo, ["merchantTin", "merchant_tin", "tin", "regNo"]),
@@ -130,7 +138,7 @@ function buildTestReceiptPayload(posInfo) {
         totalAmount,
         totalVAT,
         totalCityTax,
-        taxType: "VAT_ABLE",
+        taxType,
         merchantTin,
         items: [
           {
@@ -144,7 +152,7 @@ function buildTestReceiptPayload(posInfo) {
             totalAmount,
             totalVAT,
             totalCityTax,
-            taxType: "VAT_ABLE",
+            taxType,
           },
         ],
       },

@@ -20,6 +20,8 @@ EBARIMT_MERCHANT_TIN=
 EBARIMT_POS_NO=
 EBARIMT_DISTRICT_CODE=
 EBARIMT_BRANCH_NO=
+EBARIMT_VAT_REGISTERED=false
+EBARIMT_TEST_TAX_TYPE=VAT_FREE
 EBARIMT_TEST_CLASSIFICATION_CODE=5610100
 EBARIMT_AUTO_SEND=false
 EBARIMT_RETRY_FAILED=true
@@ -65,7 +67,7 @@ The test receipt is:
 - Product: `Тест кофе`
 - Quantity: `1`
 - Total amount: `1000`
-- VAT: `1000 / 11`
+- VAT: `0` when `EBARIMT_VAT_REGISTERED=false`
 - City tax: `0`
 - Payment: `CASH`
 
@@ -81,6 +83,13 @@ If `/rest/info` does not include merchant, POS, district, or branch values, fill
 - `EBARIMT_POS_NO`
 - `EBARIMT_DISTRICT_CODE`
 - `EBARIMT_BRANCH_NO`
+
+If the merchant is VAT registered later, set:
+
+```env
+EBARIMT_VAT_REGISTERED=true
+EBARIMT_TEST_TAX_TYPE=VAT_ABLE
+```
 
 ## Important
 
