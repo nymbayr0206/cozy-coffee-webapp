@@ -406,6 +406,7 @@ export interface CartItem {
 
 export interface OrderLineRequest {
   product_id: number;
+  name?: string | null;
   quantity: number;
   price: number;
 }
@@ -564,6 +565,7 @@ export interface KassOrderSummary {
   status?: "active" | "returned";
   created_at?: string;
   returned_at?: string;
+  lines?: OrderLineRequest[];
   stock_consumptions?: KassStockConsumption[];
   date?: string;
   [key: string]: unknown;

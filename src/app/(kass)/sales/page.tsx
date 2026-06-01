@@ -1,12 +1,14 @@
 "use client";
 
-import { Clock3, Eye, RefreshCcw, Undo2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Clock3, Eye, RefreshCcw, Undo2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Fragment, Suspense, useEffect, useState } from "react";
+import type { KeyboardEvent } from "react";
 import { useKassSession } from "@/components/kass/AppShell";
 import {
   formatMoney,
   getKassSessions,
+  getProducts,
   getReadableError,
   getSessionReport,
   paymentMethodLabel,
@@ -63,6 +65,16 @@ function eventAmountLabel(event: KassSessionEvent) {
   return "Дүн";
 }
 
+function formatQuantity(value: number | null | undefined) {
+  const quantity = Number(value ?? 0);
+  if (!Number.isFinite(quantity)) return "0";
+  return Number.isInteger(quantity) ? String(quantity) : quantity.toFixed(2);
+}
+
+function orderReferenceKey(order: KassOrderSummary, index: number) {
+  return String(order.receipt_number ?? order.order_id ?? index);
+}
+
 function SalesPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -78,6 +90,8 @@ function SalesPageContent() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [returningOrderKey, setReturningOrderKey] = useState<string | null>(null);
   const [updatingPaymentKey, setUpdatingPaymentKey] = useState<string | null>(null);
+  const [expandedOrderKey, setExpandedOrderKey] = useState<string | null>(null);
+  const [productNames, setProductNames] = useState<Record<number, string>>({});
   const displayReport = viewingSpecificSession ? selectedReport : report;
   const displayLoading = viewingSpecificSession ? selectedReportLoading : reportLoading;
   const displayError = viewingSpecificSession ? selectedReportError : reportError;
@@ -99,6 +113,20 @@ function SalesPageContent() {
       setEvents([]);
     } finally {
       setHistoryLoading(false);
+    }
+  }
+
+  async function loadProductNames() {
+    try {
+      const response = await getProducts("all");
+      const names = Object.fromEntries(
+        (response.products ?? [])
+          .filter((product) => product.id && product.name)
+          .map((product) => [product.id, product.name]),
+      );
+      setProductNames(names);
+    } catch {
+      setProductNames({});
     }
   }
 
@@ -185,6 +213,110 @@ function SalesPageContent() {
     router.push(`/sales?session_id=${encodeURIComponent(session.session_id)}`);
   }
 
+  function toggleOrderDetails(order: KassOrderSummary, index: number) {
+    const key = orderReferenceKey(order, index);
+    setExpandedOrderKey((current) => (current === key ? null : key));
+  }
+
+  function handleOrderRowKeyDown(event: KeyboardEvent<HTMLTableRowElement>, order: KassOrderSummary, index: number) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    toggleOrderDetails(order, index);
+  }
+
+  function renderOrderDetailRow(order: KassOrderSummary, rowKey: string) {
+    const lines = Array.isArray(order.lines) ? order.lines : [];
+    const payments =
+      Array.isArray(order.payment_parts) && order.payment_parts.length > 0
+        ? order.payment_parts
+        : order.payment_method
+          ? [{ method: order.payment_method, amount: Number(order.total ?? 0) }]
+          : [];
+
+    return (
+      <tr className="order-detail-row" id={`order-detail-${rowKey}`}>
+        <td colSpan={6}>
+          <div className="inline-receipt">
+            <div className="inline-receipt-brand">
+              <img src="/cozy-coffee-logo.jpg" alt="Cozy Coffee" />
+              <div>
+                <strong>Cozy Coffee Kass</strong>
+                <span>Борлуулалтын баримт</span>
+              </div>
+            </div>
+
+            <div className="inline-receipt-meta">
+              <div>
+                <span>Баримтын дугаар</span>
+                <strong>{order.receipt_number ?? "Байхгүй"}</strong>
+              </div>
+              <div>
+                <span>Захиалгын ID</span>
+                <strong>{order.order_id ?? "Байхгүй"}</strong>
+              </div>
+              <div>
+                <span>Төлбөр</span>
+                <strong>{paymentMethodLabel(order.payment_method)}</strong>
+              </div>
+              <div>
+                <span>Огноо/цаг</span>
+                <strong>{formatDateTime(order.created_at ?? order.date)}</strong>
+              </div>
+            </div>
+
+            {payments.length > 1 ? (
+              <div className="inline-receipt-payments">
+                {payments.map((payment) => (
+                  <div key={payment.method}>
+                    <span>{paymentMethodLabel(payment.method)}</span>
+                    <strong>{formatMoney(payment.amount)}</strong>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {lines.length > 0 ? (
+              <table className="inline-receipt-table">
+                <thead>
+                  <tr>
+                    <th>Бүтээгдэхүүн</th>
+                    <th>Тоо</th>
+                    <th>Үнэ</th>
+                    <th>Дүн</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lines.map((line, lineIndex) => {
+                    const name =
+                      String(line.name ?? "").trim() ||
+                      productNames[Number(line.product_id)] ||
+                      `Бүтээгдэхүүн #${line.product_id}`;
+                    const lineTotal = Number(line.quantity ?? 0) * Number(line.price ?? 0);
+
+                    return (
+                      <tr key={`${line.product_id}-${lineIndex}`}>
+                        <td>{name}</td>
+                        <td>{formatQuantity(line.quantity)} ш</td>
+                        <td>{formatMoney(line.price)}</td>
+                        <td>{formatMoney(lineTotal)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            ) : (
+              <div className="compact-empty">Энэ борлуулалтын барааны дэлгэрэнгүй хадгалагдаагүй байна.</div>
+            )}
+            <div className="inline-receipt-total">
+              <span>Нийт</span>
+              <strong>{formatMoney(order.total)}</strong>
+            </div>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
   function renderOrderRows(orderList: KassOrderSummary[], emptyMessage: string) {
     if (orderList.length === 0) {
       return (
@@ -196,6 +328,8 @@ function SalesPageContent() {
 
     return orderList.map((order, index) => {
       const reference = order.receipt_number ?? order.order_id;
+      const rowKey = orderReferenceKey(order, index);
+      const expanded = expandedOrderKey === rowKey;
       const isReturned = order.status === "returned";
       const returning = returningOrderKey === String(reference);
       const updatingPayment = updatingPaymentKey === String(reference);
@@ -204,56 +338,77 @@ function SalesPageContent() {
         : "";
 
       return (
-        <tr className={isReturned ? "row-returned" : undefined} key={`${order.order_id ?? order.receipt_number ?? index}`}>
-          <td>
-            {order.receipt_number ?? "Байхгүй"}
-            {isReturned ? <span className="table-subtext">Буцаагдсан: {formatDateTime(order.returned_at)}</span> : null}
-          </td>
-          <td>{order.order_id ?? "Байхгүй"}</td>
-          <td>
-            {isReturned ? (
-              <span className="status-pill muted">Буцаагдсан</span>
-            ) : (
-              <div className="payment-edit-cell">
-                <select
-                  aria-label={`${order.receipt_number ?? order.order_id ?? "Борлуулалт"} төлбөрийн төрөл`}
-                  value={selectedPaymentMethod}
-                  onChange={(event) => handleUpdateOrderPayment(order, event.target.value as PaymentMethod)}
-                  disabled={updatingPayment || returning || !reference}
+        <Fragment key={`${rowKey}-order`}>
+          <tr
+            className={`${isReturned ? "row-returned " : ""}${expanded ? "row-selected " : ""}order-clickable-row`}
+            key={`${rowKey}-summary`}
+            onClick={() => toggleOrderDetails(order, index)}
+            onKeyDown={(event) => handleOrderRowKeyDown(event, order, index)}
+            role="button"
+            tabIndex={0}
+            aria-expanded={expanded}
+            aria-controls={`order-detail-${rowKey}`}
+          >
+            <td>
+              <span className="order-reference-inline">
+                {expanded ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
+                <span>{order.receipt_number ?? "Байхгүй"}</span>
+              </span>
+              {isReturned ? <span className="table-subtext">Буцаагдсан: {formatDateTime(order.returned_at)}</span> : null}
+            </td>
+            <td>{order.order_id ?? "Байхгүй"}</td>
+            <td>
+              {isReturned ? (
+                <span className="status-pill muted">Буцаагдсан</span>
+              ) : (
+                <div className="payment-edit-cell">
+                  <select
+                    aria-label={`${order.receipt_number ?? order.order_id ?? "Борлуулалт"} төлбөрийн төрөл`}
+                    value={selectedPaymentMethod}
+                    onChange={(event) => handleUpdateOrderPayment(order, event.target.value as PaymentMethod)}
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                    disabled={updatingPayment || returning || !reference}
+                  >
+                    {selectedPaymentMethod ? null : <option value="">{paymentMethodLabel(order.payment_method)}</option>}
+                    {editablePaymentMethods.map((method) => (
+                      <option key={method} value={method}>
+                        {paymentMethodLabel(method)}
+                      </option>
+                    ))}
+                  </select>
+                  {updatingPayment ? <span className="table-subtext">Засаж байна</span> : null}
+                </div>
+              )}
+            </td>
+            <td>{formatMoney(order.total)}</td>
+            <td>{formatDateTime(order.created_at ?? order.date)}</td>
+            <td>
+              <div className="table-actions">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleReturnOrder(order);
+                  }}
+                  disabled={isReturned || returning || updatingPayment || !reference}
                 >
-                  {selectedPaymentMethod ? null : <option value="">{paymentMethodLabel(order.payment_method)}</option>}
-                  {editablePaymentMethods.map((method) => (
-                    <option key={method} value={method}>
-                      {paymentMethodLabel(method)}
-                    </option>
-                  ))}
-                </select>
-                {updatingPayment ? <span className="table-subtext">Засаж байна</span> : null}
+                  <Undo2 size={16} aria-hidden="true" />
+                  <span>{returning ? "Буцааж байна" : "Буцаах"}</span>
+                </button>
               </div>
-            )}
-          </td>
-          <td>{formatMoney(order.total)}</td>
-          <td>{formatDateTime(order.created_at ?? order.date)}</td>
-          <td>
-            <div className="table-actions">
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => handleReturnOrder(order)}
-                disabled={isReturned || returning || updatingPayment || !reference}
-              >
-                <Undo2 size={16} aria-hidden="true" />
-                <span>{returning ? "Буцааж байна" : "Буцаах"}</span>
-              </button>
-            </div>
-          </td>
-        </tr>
+            </td>
+          </tr>
+          {expanded ? renderOrderDetailRow(order, rowKey) : null}
+        </Fragment>
       );
     });
   }
 
   useEffect(() => {
     loadSessionHistory();
+    loadProductNames();
   }, []);
 
   useEffect(() => {

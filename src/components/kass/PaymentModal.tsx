@@ -194,6 +194,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     () =>
       lines.map((item) => ({
         product_id: item.product_id,
+        name: item.name,
         quantity: item.quantity,
         price: item.price,
       })),
