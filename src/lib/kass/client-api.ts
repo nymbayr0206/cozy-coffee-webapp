@@ -9,6 +9,8 @@ import type {
   KassApiErrorShape,
   KassHealthResponse,
   KassReport,
+  LoyaltyCustomerLookupResponse,
+  LoyaltyStampRulesResponse,
   OdooLoginRequest,
   OdooLoginResponse,
   PartnerDeleteResponse,
@@ -349,6 +351,15 @@ export function validateLoyaltyCoupon(body: { qr_token: string; pin: string }) {
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+export function lookupLoyaltyCustomer(phone: string) {
+  const query = new URLSearchParams({ phone });
+  return request<LoyaltyCustomerLookupResponse>(`/loyalty/customer?${query.toString()}`);
+}
+
+export function getLoyaltyStampRules() {
+  return request<LoyaltyStampRulesResponse>("/loyalty/stamp-rules");
 }
 
 export function returnKassOrder(reference: string | number) {

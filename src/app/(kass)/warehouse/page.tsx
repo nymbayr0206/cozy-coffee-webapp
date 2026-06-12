@@ -51,6 +51,10 @@ import type {
 } from "@/lib/kass/client-types";
 
 type WarehouseView = "stock" | "receipts" | "receipt-report" | "categories";
+type StockAlertFilter = "all" | "low" | "out";
+
+const DEFAULT_LOW_STOCK_THRESHOLD = 5;
+const LOW_STOCK_THRESHOLD_STORAGE_KEY = "cozy-warehouse-low-stock-threshold";
 
 const emptyStockForm = {
   quantity: "1",
@@ -93,7 +97,7 @@ function readImageFile(file: File) {
 }
 
 function stockQuantityText(product: KassProduct) {
-  return Number(product.qty_available ?? 0).toLocaleString("mn-MN");
+  return getStockQuantity(product).toLocaleString("mn-MN");
 }
 
 function quantityText(quantity: number) {
@@ -167,8 +171,42 @@ function productToWarehouseForm(product: KassProduct) {
   };
 }
 
-function isLowStock(product: KassProduct) {
-  return Number(product.qty_available ?? 0) <= 0;
+function getStockQuantity(product: KassProduct) {
+  const quantity = Number(product.qty_available ?? 0);
+  return Number.isFinite(quantity) ? quantity : 0;
+}
+
+function isOutOfStock(product: KassProduct) {
+  return getStockQuantity(product) <= 0;
+}
+
+function isRunningLow(product: KassProduct, threshold: number) {
+  const quantity = getStockQuantity(product);
+  return quantity > 0 && quantity <= threshold;
+}
+
+function getStockAlert(product: KassProduct, threshold: number) {
+  const quantity = getStockQuantity(product);
+
+  if (quantity <= 0) {
+    return {
+      kind: "out" as const,
+      label: "Дууссан",
+      detail: "Үлдэгдэл дууссан байна",
+      className: "danger",
+    };
+  }
+
+  if (quantity <= threshold) {
+    return {
+      kind: "low" as const,
+      label: "Дуусах дөхсөн",
+      detail: `Үлдэгдэл ${threshold} нэгжээс бага байна`,
+      className: "warning",
+    };
+  }
+
+  return null;
 }
 
 function isSalePointProduct(product: KassProduct) {
@@ -186,7 +224,8 @@ export default function WarehousePage() {
   const [partners, setPartners] = useState<KassPartner[]>([]);
   const [stockReceipts, setStockReceipts] = useState<KassStockReceipt[]>([]);
   const [activeView, setActiveView] = useState<WarehouseView>("stock");
-  const [showFinishedOnly, setShowFinishedOnly] = useState(false);
+  const [stockAlertFilter, setStockAlertFilter] = useState<StockAlertFilter>("all");
+  const [lowStockThreshold, setLowStockThreshold] = useState(DEFAULT_LOW_STOCK_THRESHOLD);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
@@ -305,6 +344,19 @@ export default function WarehousePage() {
     void refreshWarehouse();
   }, []);
 
+  useEffect(() => {
+    const savedThreshold = window.localStorage.getItem(LOW_STOCK_THRESHOLD_STORAGE_KEY);
+    const parsedThreshold = savedThreshold ? Number(savedThreshold) : DEFAULT_LOW_STOCK_THRESHOLD;
+
+    if (Number.isFinite(parsedThreshold) && parsedThreshold > 0) {
+      setLowStockThreshold(Math.trunc(parsedThreshold));
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(LOW_STOCK_THRESHOLD_STORAGE_KEY, String(lowStockThreshold));
+  }, [lowStockThreshold]);
+
   const stockProducts = useMemo(
     () => products.filter((product) => product.is_storable === true && !isSalePointProduct(product) && !isManufacturedProduct(product)),
     [products],
@@ -344,7 +396,17 @@ export default function WarehousePage() {
 
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    const visibleProducts = showFinishedOnly ? stockProducts.filter(isLowStock) : stockProducts;
+    const visibleProducts = stockProducts
+      .filter((product) => {
+        if (stockAlertFilter === "low") return isRunningLow(product, lowStockThreshold);
+        if (stockAlertFilter === "out") return isOutOfStock(product);
+        return true;
+      })
+      .slice()
+      .sort((a, b) => {
+        if (stockAlertFilter === "all") return 0;
+        return getStockQuantity(a) - getStockQuantity(b) || a.name.localeCompare(b.name, "mn");
+      });
     if (!normalizedQuery) return visibleProducts;
 
     return visibleProducts.filter((product) =>
@@ -352,7 +414,7 @@ export default function WarehousePage() {
         .toLowerCase()
         .includes(normalizedQuery),
     );
-  }, [query, showFinishedOnly, stockProducts]);
+  }, [lowStockThreshold, query, stockAlertFilter, stockProducts]);
 
   const categoryProductCounts = useMemo(() => {
     const nextCounts = new Map<number, number>();
@@ -398,13 +460,14 @@ export default function WarehousePage() {
   const summary = useMemo(
     () => ({
       totalItems: stockProducts.length,
-      lowStock: stockProducts.filter(isLowStock).length,
+      runningLow: stockProducts.filter((product) => isRunningLow(product, lowStockThreshold)).length,
+      outOfStock: stockProducts.filter(isOutOfStock).length,
       totalValue: stockProducts.reduce(
-        (sum, product) => sum + Number(product.qty_available ?? 0) * Number(product.cost_price ?? 0),
+        (sum, product) => sum + getStockQuantity(product) * Number(product.cost_price ?? 0),
         0,
       ),
     }),
-    [stockProducts],
+    [lowStockThreshold, stockProducts],
   );
 
   const receiptSummary = useMemo(
@@ -471,9 +534,17 @@ export default function WarehousePage() {
       ? Number(receiptForm.quantity) * Number(receiptForm.unit_cost)
       : 0;
 
-  function showStockProducts(finishedOnly = false) {
+  function showStockProducts(filter: StockAlertFilter = "all") {
     setActiveView("stock");
-    setShowFinishedOnly(finishedOnly);
+    setStockAlertFilter(filter);
+  }
+
+  function handleLowStockThresholdChange(value: string) {
+    const nextThreshold = Math.trunc(Number(value));
+
+    if (Number.isFinite(nextThreshold) && nextThreshold > 0) {
+      setLowStockThreshold(nextThreshold);
+    }
   }
 
   function openStockModal(product: KassProduct) {
@@ -876,7 +947,9 @@ export default function WarehousePage() {
                     ? "Орлогын түүх"
                     : activeView === "receipt-report"
                       ? "Орлогын тайлан"
-                    : showFinishedOnly
+                    : stockAlertFilter === "low"
+                      ? "Дуусах дөхсөн бараа"
+                    : stockAlertFilter === "out"
                       ? "Дууссан бараа"
                     : "Үлдэгдэл ба орлого"}
               </h2>
@@ -910,7 +983,7 @@ export default function WarehousePage() {
             type="button"
             role="tab"
             aria-selected={activeView === "stock"}
-            onClick={() => showStockProducts(false)}
+            onClick={() => showStockProducts("all")}
             data-testid="warehouse-stock-tab"
           >
             <Warehouse size={16} aria-hidden="true" />
@@ -967,16 +1040,46 @@ export default function WarehousePage() {
             <strong>{formatMoney(summary.totalValue)}</strong>
           </div>
           <button
-            className={showFinishedOnly && activeView === "stock" ? "metric metric-button active" : "metric metric-button"}
+            className={stockAlertFilter === "low" && activeView === "stock" ? "metric metric-button active" : "metric metric-button"}
             type="button"
-            onClick={() => showStockProducts(true)}
-            aria-pressed={showFinishedOnly && activeView === "stock"}
-            data-testid="warehouse-finished-filter-button"
+            onClick={() => showStockProducts("low")}
+            aria-pressed={stockAlertFilter === "low" && activeView === "stock"}
+            data-testid="warehouse-low-stock-filter-button"
           >
             <AlertTriangle size={22} aria-hidden="true" />
-            <span>Дууссан бараа</span>
-            <strong>{summary.lowStock}</strong>
+            <span>Дуусах дөхсөн</span>
+            <strong>{summary.runningLow}</strong>
           </button>
+          <button
+            className={stockAlertFilter === "out" && activeView === "stock" ? "metric metric-button active" : "metric metric-button"}
+            type="button"
+            onClick={() => showStockProducts("out")}
+            aria-pressed={stockAlertFilter === "out" && activeView === "stock"}
+            data-testid="warehouse-out-stock-filter-button"
+          >
+            <Package size={22} aria-hidden="true" />
+            <span>Дууссан</span>
+            <strong>{summary.outOfStock}</strong>
+          </button>
+        </div>
+
+        <div className="warehouse-alert-controls">
+          <div>
+            <strong>Бага үлдэгдлийн босго</strong>
+            <span>{lowStockThreshold} нэгж буюу түүнээс доош үлдвэл анхааруулна</span>
+          </div>
+          <label className="stock-threshold-field">
+            <span>Босго</span>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              inputMode="numeric"
+              value={lowStockThreshold}
+              onChange={(event) => handleLowStockThresholdChange(event.target.value)}
+              data-testid="warehouse-low-stock-threshold"
+            />
+          </label>
         </div>
 
         <label className="search-box list-search">
@@ -986,7 +1089,9 @@ export default function WarehousePage() {
             placeholder={
               activeView === "categories"
                 ? "Ангиллын нэрээр хайх"
-                : showFinishedOnly && activeView === "stock"
+                : stockAlertFilter === "low" && activeView === "stock"
+                  ? "Дуусах дөхсөн бараанаас хайх"
+                : stockAlertFilter === "out" && activeView === "stock"
                   ? "Дууссан бараанаас хайх"
                 : "Нэр, баркод, ангиллаар хайх"
             }
@@ -1018,9 +1123,10 @@ export default function WarehousePage() {
                 filtered.map((product) => {
                   const src = imageSource(product.image_base64);
                   const unitName = formatUnitName(product.uom_name);
+                  const stockAlert = getStockAlert(product, lowStockThreshold);
 
                   return (
-                    <article className="warehouse-card" key={product.id}>
+                    <article className={stockAlert ? `warehouse-card stock-alert-${stockAlert.kind}` : "warehouse-card"} key={product.id}>
                       {src ? (
                         <img className="product-thumb" src={src} alt={product.name} />
                       ) : (
@@ -1029,7 +1135,10 @@ export default function WarehousePage() {
                         </span>
                       )}
                       <div className="warehouse-card-main">
-                        <strong>{product.name}</strong>
+                        <div className="warehouse-card-title-row">
+                          <strong>{product.name}</strong>
+                          {stockAlert ? <span className={`stock-alert-pill ${stockAlert.className}`}>{stockAlert.label}</span> : null}
+                        </div>
                         <span>{product.category || "Ангилалгүй"}</span>
                         <div className="warehouse-card-meta">
                           <span>Үлдэгдэл: {stockQuantityText(product)} {unitName}</span>
@@ -1079,7 +1188,13 @@ export default function WarehousePage() {
                   );
                 })
               ) : (
-                <div className="state-box">{showFinishedOnly ? "Дууссан бараа алга байна." : "Агуулахын бараа олдсонгүй."}</div>
+                <div className="state-box">
+                  {stockAlertFilter === "low"
+                    ? "Дуусах дөхсөн бараа алга байна."
+                    : stockAlertFilter === "out"
+                      ? "Дууссан бараа алга байна."
+                      : "Агуулахын бараа олдсонгүй."}
+                </div>
               )}
             </div>
 
@@ -1109,9 +1224,10 @@ export default function WarehousePage() {
                   ) : filtered.length > 0 ? (
                     filtered.map((product) => {
                       const src = imageSource(product.image_base64);
+                      const stockAlert = getStockAlert(product, lowStockThreshold);
 
                       return (
-                        <tr key={product.id}>
+                        <tr className={stockAlert ? `row-stock-alert-${stockAlert.kind}` : undefined} key={product.id}>
                           <td>
                             {src ? (
                               <img className="product-thumb" src={src} alt={product.name} />
@@ -1123,12 +1239,14 @@ export default function WarehousePage() {
                           </td>
                           <td>
                             <strong>{product.name}</strong>
-                            {isLowStock(product) ? <small className="table-subtext danger-text">Үлдэгдэл 0 байна</small> : null}
+                            {stockAlert ? <small className={`table-subtext ${stockAlert.className}-text`}>{stockAlert.detail}</small> : null}
                           </td>
                           <td>{product.category || "Ангилалгүй"}</td>
                           <td>{product.barcode || "Баркодгүй"}</td>
                           <td>
-                            <strong>{stockQuantityText(product)}</strong>
+                            <strong className={stockAlert ? `stock-quantity ${stockAlert.className}` : "stock-quantity"}>
+                              {stockQuantityText(product)}
+                            </strong>
                           </td>
                           <td>{formatUnitName(product.uom_name)}</td>
                           <td>{formatMoney(product.cost_price ?? 0)}</td>
@@ -1178,7 +1296,13 @@ export default function WarehousePage() {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={8}>{showFinishedOnly ? "Дууссан бараа алга байна." : "Агуулахын бараа олдсонгүй."}</td>
+                      <td colSpan={8}>
+                        {stockAlertFilter === "low"
+                          ? "Дуусах дөхсөн бараа алга байна."
+                          : stockAlertFilter === "out"
+                            ? "Дууссан бараа алга байна."
+                            : "Агуулахын бараа олдсонгүй."}
+                      </td>
                     </tr>
                   )}
                 </tbody>

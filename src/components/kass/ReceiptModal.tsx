@@ -41,6 +41,7 @@ export function ReceiptModal({ receipt, onNewSale }: ReceiptModalProps) {
   const orderId = resolveOrderId(receipt);
   const paidAt = new Date(receipt.paidAt).toLocaleString("mn-MN");
   const payments = receipt.payments?.length ? receipt.payments : [{ method: receipt.paymentMethod, amount: receipt.total }];
+  const loyalty = receipt.order.loyalty ?? null;
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="receipt-title">
@@ -113,6 +114,15 @@ export function ReceiptModal({ receipt, onNewSale }: ReceiptModalProps) {
             <span>Нийт</span>
             <strong>{formatMoney(receipt.total)}</strong>
           </div>
+
+          {loyalty ? (
+            <div className="receipt-loyalty">
+              <span>Loyalty</span>
+              <strong>{loyalty.coffee_quantity} тамга нэмэгдлээ</strong>
+              <span>{loyalty.phone}</span>
+              {loyalty.member?.stamp_count !== undefined ? <strong>{loyalty.member.stamp_count} / 9</strong> : null}
+            </div>
+          ) : null}
 
           <div className="receipt-wifi">
             <span>WiFi</span>

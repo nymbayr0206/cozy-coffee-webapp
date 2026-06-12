@@ -34,6 +34,7 @@ export interface KassOrderRecord {
   total: number;
   lines: Array<{
     product_id: number;
+    name?: string | null;
     quantity: number;
     price: number;
   }>;

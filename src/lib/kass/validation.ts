@@ -139,9 +139,11 @@ export function parseOrderLines(value: unknown) {
     const productId = parseNumber(item.product_id, `lines[${index}].product_id`, { min: 1 });
     const quantity = parseNumber(item.quantity, `lines[${index}].quantity`, { min: 0.000001 });
     const price = parseNumber(item.price, `lines[${index}].price`, { min: 0 });
+    const name = typeof item.name === "string" ? item.name.trim() : "";
 
     return {
       product_id: Math.trunc(productId),
+      ...(name ? { name } : {}),
       quantity,
       price,
     };

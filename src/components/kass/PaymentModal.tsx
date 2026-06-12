@@ -5,6 +5,7 @@ import {
   HandCoins,
   Landmark,
   Loader2,
+  Phone,
   QrCode,
   ReceiptText,
   RefreshCw,
@@ -20,14 +21,17 @@ import {
   createKassOrder,
   createQpayInvoice,
   formatMoney,
+  getLoyaltyStampRules,
   getPartners,
   getReadableError,
+  lookupLoyaltyCustomer,
   paymentMethodLabel,
   validateLoyaltyCoupon,
 } from "@/lib/kass/client-api";
 import type {
   CartItem,
   KassPartner,
+  LoyaltyStampRule,
   OrderPaymentMethod,
   PaymentPart,
   PaymentMethod,
@@ -59,6 +63,93 @@ const paymentOptions: Array<{
 
 type SelectedPaymentMethod = PaymentMethod | "split" | null;
 
+interface PendingReceiptOrder {
+  method: OrderPaymentMethod;
+  payments: PaymentPart[];
+  couponQrToken?: string;
+  couponPin?: string;
+  qpayPaid?: boolean;
+}
+
+interface LookupCustomer {
+  member_id: number;
+  partner_id: number;
+  name: string;
+  phone: string;
+  stamp_count: number;
+}
+
+const coffeeKeywords = [
+  "кофе",
+  "coffee",
+  "espresso",
+  "americano",
+  "американо",
+  "latte",
+  "латте",
+  "mocha",
+  "мокка",
+  "cappuccino",
+  "капучино",
+  "macchiato",
+  "flat white",
+  "cold brew",
+  "frappe",
+  "фраппе",
+];
+const nonCoffeeKeywords = ["non coffee", "non-coffee", "noncoffee", "кофегүй", "кофе биш"];
+
+function normalizeSearchText(value: string | null | undefined) {
+  return String(value ?? "").toLocaleLowerCase("mn-MN");
+}
+
+function isCoffeeCartItem(item: CartItem) {
+  const text = normalizeSearchText(`${item.category ?? ""} ${item.name}`);
+
+  if (nonCoffeeKeywords.some((keyword) => text.includes(keyword))) {
+    return false;
+  }
+
+  return coffeeKeywords.some((keyword) => text.includes(keyword));
+}
+
+function hasIntersection(left: number[] | undefined, right: number[] | undefined) {
+  if (!left?.length || !right?.length) return false;
+  const rightSet = new Set(right);
+  return left.some((value) => rightSet.has(value));
+}
+
+function normalizeRuleName(value: string | null | undefined) {
+  return String(value ?? "").trim().toLocaleLowerCase("mn-MN");
+}
+
+function matchesStampRule(item: CartItem, rule: LoyaltyStampRule) {
+  if (rule.product_ids?.includes(item.product_id)) return true;
+  if (hasIntersection(item.pos_category_ids, rule.pos_category_ids)) return true;
+
+  const itemCategories = [item.category, ...(item.pos_categories ?? [])].map(normalizeRuleName).filter(Boolean);
+  const ruleCategories = [
+    ...(rule.pos_category_names ?? []),
+    ...(rule.product_category_names ?? []),
+  ].map(normalizeRuleName).filter(Boolean);
+
+  return itemCategories.some((category) => ruleCategories.includes(category));
+}
+
+function calculateStampQuantity(lines: CartItem[], rules: LoyaltyStampRule[] | null) {
+  return lines.reduce((sum, item) => {
+    const quantity = Math.max(0, Math.trunc(item.quantity));
+    if (quantity <= 0) return sum;
+
+    if (!rules) {
+      return isCoffeeCartItem(item) ? sum + quantity : sum;
+    }
+
+    const matchedRule = rules.find((rule) => matchesStampRule(item, rule));
+    return matchedRule ? sum + quantity * Math.max(1, Math.trunc(matchedRule.stamp_per_unit)) : sum;
+  }, 0);
+}
+
 export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess }: PaymentModalProps) {
   const [method, setMethod] = useState<SelectedPaymentMethod>(null);
   const [cashReceived, setCashReceived] = useState("");
@@ -88,19 +179,31 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
   const [partners, setPartners] = useState<KassPartner[]>([]);
   const [partnersLoading, setPartnersLoading] = useState(false);
   const [selectedCreditPartnerId, setSelectedCreditPartnerId] = useState("");
+  const [stampRules, setStampRules] = useState<LoyaltyStampRule[] | null>(null);
+  const [loyaltyPhone, setLoyaltyPhone] = useState("");
+  const [pendingReceiptOrder, setPendingReceiptOrder] = useState<PendingReceiptOrder | null>(null);
+  const [lookupCustomer, setLookupCustomer] = useState<LookupCustomer | null>(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupMessage, setLookupMessage] = useState<string | null>(null);
   const qpayRequestKeyRef = useRef<string | null>(null);
   const qpayAutoFinalizingRef = useRef(false);
+  const lookupRequestRef = useRef(0);
+  const lastLookupPhoneRef = useRef<string | null>(null);
 
   const orderLines = useMemo(
     () =>
       lines.map((item) => ({
         product_id: item.product_id,
+        name: item.name,
         quantity: item.quantity,
         price: item.price,
       })),
     [lines],
   );
   const total = useMemo(() => lines.reduce((sum, item) => sum + item.price * item.quantity, 0), [lines]);
+  const loyaltyCoffeeQuantity = useMemo(() => calculateStampQuantity(lines, stampRules), [lines, stampRules]);
+  const loyaltyPhoneValue = loyaltyPhone.trim();
+  const loyaltyPhoneDigits = useMemo(() => loyaltyPhoneValue.replace(/\D/g, "").slice(0, 8), [loyaltyPhoneValue]);
   const qpayRequestKeyBase = useMemo(
     () => `${sessionId ?? "no-session"}:${orderLines.map((line) => `${line.product_id}:${line.quantity}:${line.price}`).join("|")}`,
     [orderLines, sessionId],
@@ -206,6 +309,15 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     }
   }, []);
 
+  const loadStampRules = useCallback(async () => {
+    try {
+      const response = await getLoyaltyStampRules();
+      setStampRules(response.rules ?? []);
+    } catch {
+      setStampRules(null);
+    }
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     setMethod(null);
@@ -230,10 +342,18 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     setCouponChecking(false);
     setCouponValidated(null);
     setSelectedCreditPartnerId("");
+    setLoyaltyPhone("");
+    setPendingReceiptOrder(null);
+    setLookupCustomer(null);
+    setLookupLoading(false);
+    setLookupMessage(null);
+    lookupRequestRef.current = 0;
+    lastLookupPhoneRef.current = null;
     qpayRequestKeyRef.current = null;
     qpayAutoFinalizingRef.current = false;
     void loadPartners();
-  }, [loadPartners, open]);
+    void loadStampRules();
+  }, [loadPartners, loadStampRules, open]);
 
   useEffect(() => {
     if (!open || method !== "qpay") return;
@@ -251,6 +371,46 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
   }, [method, open, splitQpayAmount]);
 
   useEffect(() => {
+    if (!pendingReceiptOrder) return;
+
+    if (loyaltyPhoneDigits.length !== 8) {
+      lookupRequestRef.current += 1;
+      lastLookupPhoneRef.current = null;
+      setLookupCustomer(null);
+      setLookupMessage(null);
+      setLookupLoading(false);
+      return;
+    }
+
+    if (lastLookupPhoneRef.current === loyaltyPhoneDigits) return;
+
+    const requestId = lookupRequestRef.current + 1;
+    lookupRequestRef.current = requestId;
+    lastLookupPhoneRef.current = loyaltyPhoneDigits;
+    setLookupLoading(true);
+    setLookupCustomer(null);
+    setLookupMessage(null);
+    setError(null);
+
+    void lookupLoyaltyCustomer(loyaltyPhoneDigits)
+      .then((result) => {
+        if (lookupRequestRef.current !== requestId) return;
+        setLookupCustomer(result.customer);
+        setLoyaltyPhone(result.customer.phone);
+      })
+      .catch((lookupError: unknown) => {
+        if (lookupRequestRef.current !== requestId) return;
+        setLookupCustomer(null);
+        setLookupMessage(getReadableError(lookupError));
+      })
+      .finally(() => {
+        if (lookupRequestRef.current === requestId) {
+          setLookupLoading(false);
+        }
+      });
+  }, [loyaltyPhoneDigits, pendingReceiptOrder]);
+
+  useEffect(() => {
     if (
       !open ||
       method !== "qpay" ||
@@ -258,7 +418,8 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
       qpayInvoice.amount !== total ||
       qpayPaid ||
       qpayLoading ||
-      submitting
+      submitting ||
+      pendingReceiptOrder
     ) {
       return;
     }
@@ -312,7 +473,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
       window.clearTimeout(firstCheck);
       window.clearInterval(interval);
     };
-  }, [method, open, qpayInvoice, qpayLoading, qpayPaid, submitting, total]);
+  }, [method, open, pendingReceiptOrder, qpayInvoice, qpayLoading, qpayPaid, submitting, total]);
 
   useEffect(() => {
     if (
@@ -322,6 +483,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
       qpayInvoice.amount !== total ||
       !qpayPaid ||
       submitting ||
+      pendingReceiptOrder ||
       qpayAutoFinalizingRef.current
     ) {
       return;
@@ -329,7 +491,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
 
     qpayAutoFinalizingRef.current = true;
     void submitOrder("qpay", [{ method: "qpay", amount: total }], { qpayPaid: true, autoPrint: true });
-  }, [method, open, qpayInvoice, qpayPaid, submitting, total]);
+  }, [method, open, pendingReceiptOrder, qpayInvoice, qpayPaid, submitting, total]);
 
   if (!open) return null;
 
@@ -349,14 +511,40 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
       setError("Зээлээр бүртгэх харилцагч сонгоно уу.");
       return;
     }
-    const creditPartnerId = creditPayment ? selectedCreditPartner?.id ?? null : null;
-    const creditPartnerName = creditPayment ? selectedCreditPartner?.name ?? null : null;
-
     const isQpayPaid = options?.qpayPaid ?? qpayPaid;
     if (qpayPayment && (!qpayInvoice || !isQpayPaid || qpayInvoice.amount !== qpayPayment.amount)) {
       setError("QPay төлбөр төлөгдсөн эсэхийг эхлээд шалгана уу.");
       return;
     }
+
+    setPendingReceiptOrder({
+      method: nextMethod,
+      payments,
+      couponQrToken: options?.couponQrToken,
+      couponPin: options?.couponPin,
+      qpayPaid: isQpayPaid,
+    });
+    setLookupCustomer(null);
+    setLookupMessage(null);
+    setError(null);
+  }
+
+  async function finalizeOrder(useCustomer: boolean) {
+    if (!sessionId || !pendingReceiptOrder) {
+      setError("Төлбөрийн мэдээлэл дутуу байна.");
+      return;
+    }
+
+    if (useCustomer && !lookupCustomer) {
+      setLookupMessage("Эхлээд утсаар хайж хэрэглэгчээ сонгоно уу.");
+      return;
+    }
+
+    const qpayPayment = pendingReceiptOrder.payments.find((payment) => payment.method === "qpay");
+    const creditPayment = pendingReceiptOrder.payments.find((payment) => payment.method === "credit");
+    const creditPartnerId = creditPayment ? selectedCreditPartner?.id ?? null : null;
+    const creditPartnerName = creditPayment ? selectedCreditPartner?.name ?? null : null;
+    const customerPhone = useCustomer && lookupCustomer ? lookupCustomer.phone : null;
 
     setSubmitting(true);
     setError(null);
@@ -364,29 +552,29 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
     try {
       const order = await createKassOrder({
         session_id: sessionId,
-        payment_method: nextMethod,
-        payments,
+        payment_method: pendingReceiptOrder.method,
+        payments: pendingReceiptOrder.payments,
         partner_id: creditPartnerId,
         partner_name: creditPartnerName,
         lines: orderLines,
         qpay_transaction_id: qpayPayment ? qpayInvoice?.transaction_id ?? null : null,
-        coupon_qr_token: options?.couponQrToken ?? null,
-        coupon_pin: options?.couponPin ?? null,
+        coupon_qr_token: pendingReceiptOrder.couponQrToken ?? null,
+        coupon_pin: pendingReceiptOrder.couponPin ?? null,
+        loyalty_phone: customerPhone,
+        loyalty_coffee_quantity: customerPhone ? loyaltyCoffeeQuantity : null,
       });
 
       onPaymentSuccess({
         order,
         lines,
         total,
-        paymentMethod: nextMethod,
-        payments,
+        paymentMethod: pendingReceiptOrder.method,
+        payments: pendingReceiptOrder.payments,
         paidAt: new Date().toISOString(),
-        autoPrint: options?.autoPrint ?? false,
+        autoPrint: true,
       });
     } catch (orderError) {
-      if (options?.autoPrint) {
-        qpayAutoFinalizingRef.current = false;
-      }
+      qpayAutoFinalizingRef.current = false;
       setError(getReadableError(orderError));
     } finally {
       setSubmitting(false);
@@ -417,6 +605,7 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
       );
       setQpayPaid(status.paid);
       if (status.paid && method === "qpay") {
+        qpayAutoFinalizingRef.current = true;
         await submitOrder("qpay", [{ method: "qpay", amount: total }], { qpayPaid: true, autoPrint: true });
       }
       setQpayNotice(status.paid ? "QPay төлбөр амжилттай баталгаажлаа." : "Төлбөр хараахан орж ирээгүй байна.");
@@ -497,6 +686,101 @@ export function PaymentModal({ open, sessionId, lines, onClose, onPaymentSuccess
               </button>
             );
           })}
+        </div>
+
+        {pendingReceiptOrder ? (
+          <div className="receipt-customer-panel">
+            <div className="receipt-customer-heading">
+              <div>
+                <p className="eyebrow">Баримт</p>
+                <h3>Худалдан авагч бүртгэх үү?</h3>
+              </div>
+              <strong>{formatMoney(total)}</strong>
+            </div>
+
+            <div className="receipt-customer-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void finalizeOrder(false)}
+                disabled={submitting}
+              >
+                <ReceiptText size={17} aria-hidden="true" />
+                <span>{submitting ? "Хэвлэж байна" : "Шууд баримт хэвлэх"}</span>
+              </button>
+
+              <div className="receipt-customer-lookup">
+                <label className="field">
+                  <span>Худалдан авагчийн утас</span>
+                  <div className="input-with-icon">
+                    <Phone size={18} aria-hidden="true" />
+                    <input
+                      value={loyaltyPhone}
+                      onChange={(event) => {
+                        setLoyaltyPhone(event.target.value.replace(/\D/g, "").slice(0, 8));
+                        setLookupCustomer(null);
+                        setLookupMessage(null);
+                      }}
+                      placeholder="Жишээ: 95909912"
+                      inputMode="tel"
+                      maxLength={8}
+                    />
+                  </div>
+                </label>
+              </div>
+
+              {lookupLoading ? (
+                <div className="receipt-customer-status">
+                  <Loader2 className="spin-icon" size={17} aria-hidden="true" />
+                  <span>Хэрэглэгч хайж байна...</span>
+                </div>
+              ) : null}
+
+              {lookupCustomer ? (
+                <div className="receipt-customer-card">
+                  <span>Олдсон хэрэглэгч</span>
+                  <strong>{lookupCustomer.name}</strong>
+                  <span>{lookupCustomer.phone}</span>
+                  <b>{loyaltyCoffeeQuantity} тамга нэмэгдэнэ</b>
+                </div>
+              ) : null}
+
+              {lookupMessage ? <div className="inline-warning">{lookupMessage}</div> : null}
+
+              <button
+                className="primary-button full-width"
+                type="button"
+                onClick={() => void finalizeOrder(true)}
+                disabled={!lookupCustomer || submitting}
+              >
+                <ReceiptText size={17} aria-hidden="true" />
+                <span>{submitting ? "Хэвлэж байна" : "Хэрэглэгчтэй баримт хэвлэх"}</span>
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="loyalty-phone-panel" hidden>
+          <label className="field loyalty-phone-field">
+            <span>Хэрэглэгчийн утас</span>
+            <div className="input-with-icon">
+              <Phone size={18} aria-hidden="true" />
+              <input
+                value={loyaltyPhone}
+                onChange={(event) => setLoyaltyPhone(event.target.value)}
+                placeholder="Жишээ: 9900-1234"
+                inputMode="tel"
+              />
+            </div>
+          </label>
+          <div className="loyalty-stamp-note">
+            <strong>{loyaltyCoffeeQuantity} тамга</strong>
+            <span>
+              {loyaltyCoffeeQuantity > 0
+                ? "Утас бичвэл энэ захиалгын coffee бүтээгдэхүүнүүд Odoo loyalty дээр бүртгэгдэнэ."
+                : "Энэ захиалгад coffee бүтээгдэхүүн илрээгүй байна."}
+            </span>
+          </div>
         </div>
 
         <div className="payment-body">

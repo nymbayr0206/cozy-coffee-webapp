@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <record id="cozy_loyalty_stamp_rule_view_tree" model="ir.ui.view">
+    <field name="name">cozy.loyalty.stamp.rule.tree</field>
+    <field name="model">cozy.loyalty.stamp.rule</field>
+    <field name="arch" type="xml">
+      <tree>
+        <field name="sequence" widget="handle"/>
+        <field name="name"/>
+        <field name="stamp_per_unit"/>
+        <field name="pos_category_ids" widget="many2many_tags"/>
+        <field name="product_category_ids" widget="many2many_tags"/>
+        <field name="product_ids" widget="many2many_tags"/>
+        <field name="active"/>
+      </tree>
+    </field>
+  </record>
+
+  <record id="cozy_loyalty_stamp_rule_view_form" model="ir.ui.view">
+    <field name="name">cozy.loyalty.stamp.rule.form</field>
+    <field name="model">cozy.loyalty.stamp.rule</field>
+    <field name="arch" type="xml">
+      <form>
+        <sheet>
+          <group>
+            <field name="active"/>
+            <field name="name"/>
+            <field name="sequence"/>
+            <field name="stamp_per_unit"/>
+          </group>
+          <notebook>
+            <page string="POS Categories">
+              <field name="pos_category_ids" widget="many2many_tags"/>
+            </page>
+            <page string="Product Categories">
+              <field name="product_category_ids" widget="many2many_tags"/>
+            </page>
+            <page string="Products">
+              <field name="product_ids" widget="many2many_tags"/>
+            </page>
+          </notebook>
+        </sheet>
+      </form>
+    </field>
+  </record>
+
+  <record id="cozy_loyalty_stamp_rule_action" model="ir.actions.act_window">
+    <field name="name">Loyalty Stamp Rules</field>
+    <field name="res_model">cozy.loyalty.stamp.rule</field>
+    <field name="view_mode">tree,form</field>
+  </record>
+
+  <menuitem id="cozy_loyalty_menu_root" name="Cozy Loyalty" sequence="60"/>
+  <menuitem
+    id="cozy_loyalty_stamp_rule_menu"
+    name="Stamp Rules"
+    parent="cozy_loyalty_menu_root"
+    action="cozy_loyalty_stamp_rule_action"
+    sequence="10"
+  />
+</odoo>
