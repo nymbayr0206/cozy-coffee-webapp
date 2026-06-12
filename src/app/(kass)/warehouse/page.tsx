@@ -3,7 +3,6 @@
 import { FormEvent, useEffect, useMemo, useState, type ChangeEvent } from "react";
 import {
   AlertTriangle,
-  Boxes,
   ClipboardList,
   Edit3,
   ImageIcon,
@@ -51,7 +50,7 @@ import type {
 } from "@/lib/kass/client-types";
 
 type WarehouseView = "stock" | "receipts" | "receipt-report" | "categories";
-type StockAlertFilter = "all" | "low" | "out";
+type StockAlertFilter = "all" | "out";
 
 const DEFAULT_LOW_STOCK_THRESHOLD = 5;
 const LOW_STOCK_THRESHOLD_STORAGE_KEY = "cozy-warehouse-low-stock-threshold";
@@ -398,7 +397,6 @@ export default function WarehousePage() {
     const normalizedQuery = query.trim().toLowerCase();
     const visibleProducts = stockProducts
       .filter((product) => {
-        if (stockAlertFilter === "low") return isRunningLow(product, lowStockThreshold);
         if (stockAlertFilter === "out") return isOutOfStock(product);
         return true;
       })
@@ -460,14 +458,9 @@ export default function WarehousePage() {
   const summary = useMemo(
     () => ({
       totalItems: stockProducts.length,
-      runningLow: stockProducts.filter((product) => isRunningLow(product, lowStockThreshold)).length,
       outOfStock: stockProducts.filter(isOutOfStock).length,
-      totalValue: stockProducts.reduce(
-        (sum, product) => sum + getStockQuantity(product) * Number(product.cost_price ?? 0),
-        0,
-      ),
     }),
-    [lowStockThreshold, stockProducts],
+    [stockProducts],
   );
 
   const receiptSummary = useMemo(
@@ -947,8 +940,6 @@ export default function WarehousePage() {
                     ? "Орлогын түүх"
                     : activeView === "receipt-report"
                       ? "Орлогын тайлан"
-                    : stockAlertFilter === "low"
-                      ? "Дуусах дөхсөн бараа"
                     : stockAlertFilter === "out"
                       ? "Дууссан бараа"
                     : "Үлдэгдэл ба орлого"}
@@ -1029,26 +1020,16 @@ export default function WarehousePage() {
         </div>
 
         <div className="report-kpi-grid warehouse-kpi-grid">
-          <div className="metric strong-metric">
+          <button
+            className={stockAlertFilter === "all" && activeView === "stock" ? "metric metric-button active" : "metric metric-button"}
+            type="button"
+            onClick={() => showStockProducts("all")}
+            aria-pressed={stockAlertFilter === "all" && activeView === "stock"}
+            data-testid="warehouse-all-stock-filter-button"
+          >
             <Warehouse size={22} aria-hidden="true" />
             <span>Агуулахын бараа</span>
             <strong>{summary.totalItems}</strong>
-          </div>
-          <div className="metric">
-            <Boxes size={22} aria-hidden="true" />
-            <span>Нийт үлдэгдэл дүн</span>
-            <strong>{formatMoney(summary.totalValue)}</strong>
-          </div>
-          <button
-            className={stockAlertFilter === "low" && activeView === "stock" ? "metric metric-button active" : "metric metric-button"}
-            type="button"
-            onClick={() => showStockProducts("low")}
-            aria-pressed={stockAlertFilter === "low" && activeView === "stock"}
-            data-testid="warehouse-low-stock-filter-button"
-          >
-            <AlertTriangle size={22} aria-hidden="true" />
-            <span>Дуусах дөхсөн</span>
-            <strong>{summary.runningLow}</strong>
           </button>
           <button
             className={stockAlertFilter === "out" && activeView === "stock" ? "metric metric-button active" : "metric metric-button"}
@@ -1057,8 +1038,8 @@ export default function WarehousePage() {
             aria-pressed={stockAlertFilter === "out" && activeView === "stock"}
             data-testid="warehouse-out-stock-filter-button"
           >
-            <Package size={22} aria-hidden="true" />
-            <span>Дууссан</span>
+            <AlertTriangle size={22} aria-hidden="true" />
+            <span>Дууссан бараа</span>
             <strong>{summary.outOfStock}</strong>
           </button>
         </div>
@@ -1089,8 +1070,6 @@ export default function WarehousePage() {
             placeholder={
               activeView === "categories"
                 ? "Ангиллын нэрээр хайх"
-                : stockAlertFilter === "low" && activeView === "stock"
-                  ? "Дуусах дөхсөн бараанаас хайх"
                 : stockAlertFilter === "out" && activeView === "stock"
                   ? "Дууссан бараанаас хайх"
                 : "Нэр, баркод, ангиллаар хайх"
@@ -1189,9 +1168,7 @@ export default function WarehousePage() {
                 })
               ) : (
                 <div className="state-box">
-                  {stockAlertFilter === "low"
-                    ? "Дуусах дөхсөн бараа алга байна."
-                    : stockAlertFilter === "out"
+                  {stockAlertFilter === "out"
                       ? "Дууссан бараа алга байна."
                       : "Агуулахын бараа олдсонгүй."}
                 </div>
@@ -1297,9 +1274,7 @@ export default function WarehousePage() {
                   ) : (
                     <tr>
                       <td colSpan={8}>
-                        {stockAlertFilter === "low"
-                          ? "Дуусах дөхсөн бараа алга байна."
-                          : stockAlertFilter === "out"
+                        {stockAlertFilter === "out"
                             ? "Дууссан бараа алга байна."
                             : "Агуулахын бараа олдсонгүй."}
                       </td>
