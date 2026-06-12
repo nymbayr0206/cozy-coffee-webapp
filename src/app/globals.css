@@ -2486,12 +2486,12 @@ nextjs-portal {
 }
 
 .warehouse-kpi-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-bottom: 12px;
 }
 
 .warehouse-view-tabs {
-  grid-template-columns: repeat(2, minmax(180px, 260px));
+  grid-template-columns: repeat(5, minmax(150px, 1fr));
   margin-bottom: 12px;
 }
 
@@ -2501,34 +2501,6 @@ nextjs-portal {
 
 .warehouse-kpi-grid .metric svg {
   color: var(--teal);
-}
-
-.warehouse-alert-controls {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
-  background: #ffffff;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.warehouse-alert-controls > div {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.warehouse-alert-controls strong {
-  font-size: 13px;
-}
-
-.warehouse-alert-controls span {
-  color: var(--muted);
-  font-size: 12px;
 }
 
 .stock-threshold-field {
@@ -2544,6 +2516,33 @@ nextjs-portal {
   padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.threshold-table {
+  min-width: 860px;
+}
+
+.threshold-inline-field input,
+.threshold-card-field input {
+  width: 120px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.threshold-card-field {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.threshold-card-field span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 760;
 }
 
 .warehouse-card-title-row {
@@ -3668,8 +3667,7 @@ nextjs-portal {
   }
 
   .dashboard-hero-main,
-  .dashboard-hero-actions,
-  .warehouse-alert-controls {
+  .dashboard-hero-actions {
     align-items: stretch;
     flex-direction: column;
   }

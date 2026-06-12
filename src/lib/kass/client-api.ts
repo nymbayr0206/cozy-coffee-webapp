@@ -49,6 +49,8 @@ import type {
   UomDeleteResponse,
   UomFormRequest,
   UomResponse,
+  WarehouseThresholdsRequest,
+  WarehouseThresholdsResponse,
 } from "./client-types";
 
 const API_ROOT = "/api/kass";
@@ -160,6 +162,17 @@ export function getHealth() {
 export function getProducts(scope: ProductScope = "pos") {
   const query = scope === "pos" ? "" : `?scope=${encodeURIComponent(scope)}`;
   return request<ProductsResponse>(`/products${query}`);
+}
+
+export function getWarehouseThresholds() {
+  return request<WarehouseThresholdsResponse>("/warehouse-thresholds");
+}
+
+export function updateWarehouseThresholds(body: WarehouseThresholdsRequest) {
+  return request<WarehouseThresholdsResponse>("/warehouse-thresholds", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
 }
 
 export function getProductCategories() {

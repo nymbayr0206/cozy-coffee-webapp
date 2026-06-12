@@ -159,6 +159,14 @@ export interface ProductResponse {
   product: KassProduct;
 }
 
+export interface WarehouseThresholdsResponse {
+  thresholds: Record<string, number>;
+}
+
+export interface WarehouseThresholdsRequest {
+  thresholds: Record<string, number>;
+}
+
 export type ProductScope = "pos" | "all" | "hidden" | "production" | "stock";
 
 export interface KassRecipeLine {
