@@ -2486,7 +2486,7 @@ nextjs-portal {
 }
 
 .warehouse-kpi-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 12px;
 }
 
@@ -2501,6 +2501,120 @@ nextjs-portal {
 
 .warehouse-kpi-grid .metric svg {
   color: var(--teal);
+}
+
+.warehouse-alert-controls {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.warehouse-alert-controls > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.warehouse-alert-controls strong {
+  font-size: 13px;
+}
+
+.warehouse-alert-controls span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.stock-threshold-field {
+  display: inline-grid;
+  grid-template-columns: auto 82px;
+  align-items: center;
+  gap: 8px;
+}
+
+.stock-threshold-field input {
+  width: 82px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.warehouse-card-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stock-alert-pill {
+  flex: 0 0 auto;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.stock-alert-pill.warning {
+  color: var(--amber);
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+}
+
+.stock-alert-pill.danger {
+  color: var(--red);
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+}
+
+.warehouse-card.stock-alert-low {
+  border-color: #fed7aa;
+  background: #fffbf4;
+}
+
+.warehouse-card.stock-alert-out {
+  border-color: #fecdd3;
+  background: #fff7f8;
+}
+
+.data-table tr.row-stock-alert-low > td {
+  background: #fffbf4;
+}
+
+.data-table tr.row-stock-alert-out > td {
+  background: #fff7f8;
+}
+
+.warning-text {
+  color: var(--amber);
+}
+
+.danger-text {
+  color: var(--red);
+}
+
+.stock-quantity {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
+
+.stock-quantity.warning {
+  color: var(--amber);
+}
+
+.stock-quantity.danger {
+  color: var(--red);
 }
 
 .partner-kpi-grid {
@@ -3554,7 +3668,8 @@ nextjs-portal {
   }
 
   .dashboard-hero-main,
-  .dashboard-hero-actions {
+  .dashboard-hero-actions,
+  .warehouse-alert-controls {
     align-items: stretch;
     flex-direction: column;
   }
@@ -3593,6 +3708,10 @@ nextjs-portal {
 
   .warehouse-table-wrap {
     display: none;
+  }
+
+  .stock-threshold-field {
+    grid-template-columns: minmax(0, 1fr) 92px;
   }
 
   .category-table-wrap {
